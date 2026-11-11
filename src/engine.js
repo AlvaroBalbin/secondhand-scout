@@ -67,13 +67,14 @@ function garmentStyles(input, wants) {
     return value.trim().replace(/ +/g, " ");
   };
   return Object.fromEntries(Object.entries(styles).map(([kind, style]) => {
+    const lists = ["prefer", "require", "avoid"];
     if (!style || typeof style !== "object" || Array.isArray(style) ||
-        Object.keys(style).some((key) => key !== "search" && key !== "prefer") ||
-        (style.prefer != null && (!Array.isArray(style.prefer) || style.prefer.length > 4)))
-      throw new InputError("Each clothing type can have one search phrase and up to four preferences.");
+        Object.keys(style).some((key) => key !== "search" && !lists.includes(key)) ||
+        lists.some((key) => style[key] != null && (!Array.isArray(style[key]) || style[key].length > 4)))
+      throw new InputError("Each clothing type can have one search phrase and up to four phrases per style list.");
     return [kind, {
-      search: style.search == null ? "" : phrase(style.search),
-      prefer: unique((style.prefer ?? []).map((value) => phrase(value).toLowerCase())),
+      search: style.search == null || style.search === "" ? "" : phrase(style.search),
+      ...Object.fromEntries(lists.map((key) => [key, unique((style[key] ?? []).map((value) => phrase(value).toLowerCase()))])),
     }];
   }));
 }
@@ -233,6 +234,7 @@ export function assessFit(item, p) {
       checks.push({
         status: "unknown",
         note: "Collar size missing. Check the label photo.",
+        question: "What collar size is printed on the label?",
       });
     else {
       const ok = spec.collarCm >= evidence.min - 0.6 && spec.collarCm <= evidence.max + 0.6;
@@ -255,6 +257,9 @@ export function assessFit(item, p) {
       status: value === null ? "unknown" : matches ? "match" : "excluded",
       note: value === null ? `${field.label} missing. Ask the seller for it.` :
         `${field.label} evidence is ${value} ${field.unit}${matches ? "." : ", outside your range."}`,
+      ...(value === null ? { question: key === "pitToPitCm"
+        ? "Could you measure it flat from armpit to armpit in cm?"
+        : `Could you measure the ${field.label.toLowerCase()} in ${field.unit}?` } : {}),
     });
   }
   const status = checks.some((c) => c.status === "excluded") ? "excluded" :
@@ -332,7 +337,26 @@ export function disclosedDefects(text) {
     MARK_DISCLOSURE.test(remaining) || /\bneeds?\s+(?:a\s+)?(?:repair|fix|replacement)\b/.test(remaining);
 }
 
-export function eligible(item, p) {
+function styleRequirements(item, p) {
+  const style = p.styleByKind?.[item.kind];
+  const required = style?.require ?? [];
+  const evidenced = new Set(listingStyleEvidence(item, required).map(({ term }) => term));
+  const barbourModels = ["beaufort", "bedale", "border"];
+  const model = required.find((term) => barbourModels.includes(term));
+  const wrongModel = model && !evidenced.has(model) && norm(item.brand).includes("barbour") &&
+    listingStyleEvidence(item, barbourModels.filter((term) => term !== model)).length > 0;
+  return {
+    missing: required.filter((term) => !evidenced.has(term)),
+    excluded: Boolean(wrongModel) || listingStyleEvidence(item, style?.avoid).length > 0 || required.some((term) => {
+      if (evidenced.has(term)) return false;
+      const phrase = term.split(/[ -]+/).join("[\\s-]+");
+      const negated = new RegExp(`\\b(?:not|no|without)\\s+(?:(?:a|any|actually)\\s+)?${phrase}(?![\\p{L}\\p{N}])`, "iu");
+      return negated.test(String(item.title ?? "")) || negated.test(String(item.description ?? ""));
+    }),
+  };
+}
+
+export function eligible(item, p, { preview = false } = {}) {
   if (
     !Number.isFinite(item.price) ||
     item.price <= 0 ||
@@ -356,8 +380,10 @@ export function eligible(item, p) {
     return false;
   if (p.clean && disclosedDefects(`${item.title} ${item.description || ""}`))
     return false;
+  const style = styleRequirements(item, p);
+  if (style.excluded || (!preview && style.missing.length)) return false;
   const f = assessFit(item, p);
-  return f.status !== "excluded" && (!p.strictFit || f.status === "match");
+  return f.status !== "excluded" && (preview || !p.strictFit || f.status === "match");
 }
 
 function median(a) {
@@ -478,9 +504,9 @@ export function listingStyleEvidence(item, preferences = []) {
   });
 }
 
-export function rankItems(items, p, { comparables = items, source = "supplied_listings" } = {}) {
+export function rankItems(items, p, { comparables = items, source = "supplied_listings", personal, preview = false } = {}) {
   const seen = new Set();
-  const pool = items.filter((item) => eligible(item, p) && isNewListing(seen, item));
+  const pool = items.filter((item) => eligible(item, p, { preview }) && (personal?.allow(item) ?? true) && isNewListing(seen, item));
   const groups = comparisonGroups(comparables, p);
   const keywords = unique(norm(p.brief).match(
     /\b(?:navy|blue|white|grey|gray|green|black|pink|wool|cotton|merino|cashmere|oxford|classic|regular|slim|quilted|waxed|logo)\b/g,
@@ -503,15 +529,19 @@ export function rankItems(items, p, { comparables = items, source = "supplied_li
       if (item.sellerReviews >= 20 && item.sellerStars >= 4.8)
         reasons.push("Strong seller feedback");
       const scopedStyle = p.styleByKind?.[item.kind];
-      const styleEvidence = listingStyleEvidence(item, scopedStyle?.prefer ?? keywords);
+      const styleEvidence = listingStyleEvidence(item, scopedStyle
+        ? unique([...scopedStyle.prefer, ...(scopedStyle.require ?? [])]) : keywords);
       if (styleEvidence.length)
         reasons.push(`Listing mentions ${styleEvidence.map((entry) => entry.excerpt).join(", ")}`);
       const discountCredit = deal
         ? pence(Math.max(0, Math.min(8, deal.belowMedian / 4, deal.medianWithFees * 0.1)))
         : 0;
+      const taste = personal?.score(item);
       const adjustment = (wearAllowance[conditionTier(item.condition)] ?? 100) -
-        Math.min(400, styleEvidence.length * 200) - (p.logos && logo ? 200 : 0) - discountCredit;
-      return { ...item, fit, reasons, benchmark: deal?.medianItemPrice ?? null, deal, styleEvidence, adjustment };
+        Math.min(400, styleEvidence.length * 200) - (p.logos && logo ? 200 : 0) - discountCredit +
+        (taste?.adjustment ?? 0);
+      return { ...item, fit, reasons, benchmark: deal?.medianItemPrice ?? null, deal, styleEvidence,
+        ...(taste?.evidence.length ? { tasteEvidence: taste.evidence } : {}), adjustment };
     })
     .sort((a, b) => Number(b.fit.status === "match") - Number(a.fit.status === "match") ||
       itemCost(a) + a.adjustment - itemCost(b) - b.adjustment ||
@@ -615,14 +645,30 @@ export function planBasket(ranked, p) {
   return { items: best.items, cost: calculateCosts(best.items, p), missing };
 }
 
-export function makeResult(items, p, meta = {}, comparables = items) {
+export function makeResult(items, p, meta = {}, comparables = items, { personal, nearMatches = false } = {}) {
   const source = { live: "observed_catalogue", feed: "authorised_feed", demo: "fictional", import: "supplied_listings" }[meta.mode];
-  const ranked = rankItems(items, p, { comparables, source }),
+  const ranked = rankItems(items, p, { comparables, source, personal }),
     basket = planBasket(ranked, p);
+  const seen = new Set();
+  const near = nearMatches && basket.missing.length ? items.flatMap((item) => {
+    if (!basket.missing.some(({ kind }) => kind === item.kind) || eligible(item, p) ||
+        !eligible(item, p, { preview: true }) || !(personal?.allow(item) ?? true) ||
+        !isNewListing(seen, item)) return [];
+    const total = calculateCosts([item], p).total;
+    if (total > p.budget) return [];
+    const fit = assessFit(item, p);
+    const questions = (fit.checks ?? []).filter((check) => check.status === "unknown")
+      .map(({ question }) => question ?? "Could you share a photo of the size label and the garment measurements?");
+    if (fit.status === "unknown" && !questions.length) questions.push(fit.note);
+    const missingStyle = styleRequirements(item, p).missing;
+    if (missingStyle.length) questions.push(`Could you confirm these details: ${missingStyle.join(", ")}?`);
+    return [{ id: item.id, title: item.title, kind: item.kind, url: item.url, estimatedDelivered: total, questions }];
+  }).sort((a, b) => a.questions.length - b.questions.length || a.estimatedDelivered - b.estimatedDelivered).slice(0, 3) : [];
   return {
     profile: p,
     items: ranked.slice(0, 48).map(({ adjustment, ...i }) => i),
     basket: { ...basket, items: basket.items.map(({ adjustment, ...i }) => i) },
+    ...(nearMatches ? { nearMatches: near } : {}),
     meta: { checkedAt: new Date().toISOString(), ...meta },
   };
 }

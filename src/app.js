@@ -16,7 +16,7 @@ const json = (data, status = 200) =>
 const cache = new Map();
 let busy = false,
   lastSearch = 0;
-export async function api(request) {
+export async function api(request, rankingOptions = {}) {
   const path = new URL(request.url).pathname;
   if (path === "/api/health")
     return json({ ok: true, version: "0.1.0", marketplace: "uk" });
@@ -44,7 +44,7 @@ export async function api(request) {
           source: "Synthetic examples",
           warnings: [],
           limits: "Example prices and listings.",
-        }),
+        }, undefined, rankingOptions),
       );
     if (path === "/api/rank")
       return json(
@@ -54,19 +54,21 @@ export async function api(request) {
           warnings: [],
           limits:
             "Availability, label photos and condition depend on the supplied information.",
-        }),
+        }, undefined, rankingOptions),
       );
     if (path === "/api/search" && process.env.SCOUT_FEED_FILE) {
       try {
         const state = await readFeed(process.env.SCOUT_FEED_FILE);
-        const found = searchFeed(state, { profile, maxAgeMinutes: Number(process.env.SCOUT_FEED_MAX_AGE_MINUTES || 60) });
-        return json(makeResult(found.items, profile, found.meta, found.comparables));
+        const found = searchFeed(state, { profile, preview: rankingOptions.nearMatches,
+          maxAgeMinutes: Number(process.env.SCOUT_FEED_MAX_AGE_MINUTES || 60) });
+        return json(makeResult(found.items, profile, found.meta, found.comparables, rankingOptions));
       } catch {
         return json({ error: "The configured listing feed is unavailable or stale. Refresh it before searching.", type: "provider_unavailable" }, 503);
       }
     }
     const key = JSON.stringify({ path, profile, links: body.links });
-    const hit = cache.get(key);
+    const personalised = rankingOptions.personal || rankingOptions.nearMatches;
+    const hit = personalised ? null : cache.get(key);
     if (hit && Date.now() - hit.time < 300000)
       return json({
         ...hit.result,
@@ -86,10 +88,12 @@ export async function api(request) {
       const found =
         path === "/api/import"
           ? await importListings(profile, body.links)
-          : await discover(profile);
-      const result = makeResult(found.items, profile, found.meta, found.comparables);
-      if (cache.size >= 20) cache.delete(cache.keys().next().value);
-      cache.set(key, { time: Date.now(), result });
+          : await discover(profile, { preview: rankingOptions.nearMatches });
+      const result = makeResult(found.items, profile, found.meta, found.comparables, rankingOptions);
+      if (!personalised) {
+        if (cache.size >= 20) cache.delete(cache.keys().next().value);
+        cache.set(key, { time: Date.now(), result });
+      }
       return json(result);
     } finally {
       busy = false;

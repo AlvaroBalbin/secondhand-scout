@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
+  "bin": { "secondhand-scout": "scripts/scout.mjs" },
+  "files": ["scripts", "src", "vendor", "examples", "AGENT-QUICKSTART.md"],
   "description": "A small secondhand shopping assistant with honest fit checks and bundle-aware budgets.",
   "engines": {
     "node": ">=22"

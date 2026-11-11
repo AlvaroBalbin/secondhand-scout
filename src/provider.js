@@ -236,7 +236,7 @@ export async function readListing(client, reference, kind) {
 export async function discover(
   profile,
   { client = new PublicVintedTransport(), onProgress = () => {}, expandWardrobes = true,
-    extraSearches = true, onSnapshot } = {},
+    extraSearches = true, onSnapshot, preview = false } = {},
 ) {
   const items = [],
     warnings = [],
@@ -310,7 +310,7 @@ export async function discover(
   }
   // Validate and enrich a bounded shortlist, prioritising size-compatible results.
   const relaxed = { ...profile, strictFit: false };
-  const ranked = rankItems(items, relaxed);
+  const ranked = rankItems(items, relaxed, { preview: true });
   const countsBySeller = new Map();
   for (const item of ranked) {
     if (!item.sellerId || item.fit.status !== "match") continue;
@@ -408,11 +408,11 @@ export async function discover(
         }
         for (const { kind } of profile.wants) {
           const listing = clean(row, kind);
-          if (eligible(listing, relaxed)) return [listing];
+          if (eligible(listing, relaxed, { preview: true })) return [listing];
         }
         return [];
       });
-      const shortlist = rankItems(candidates, relaxed).sort((a, b) =>
+      const shortlist = rankItems(candidates, relaxed, { preview: true }).sort((a, b) =>
         Number(missingKinds.has(b.kind)) - Number(missingKinds.has(a.kind)));
       for (const item of shortlist.slice(0, 2)) {
         if (!canCheckDetails() || wardrobeDetailAttempts >= 4) break;
@@ -426,8 +426,10 @@ export async function discover(
   await checkCatalogue(DETAIL_CHECK_LIMIT - wardrobeDetailAttempts);
   const enriched = [...refreshed.values()].filter(Boolean).concat(wardrobeListings);
   const qualified = enriched.filter((item) => eligible(item, profile));
+  const toVerify = preview ? qualified.concat(enriched.filter((item) =>
+    !eligible(item, profile) && eligible(item, profile, { preview: true })).slice(0, 6)) : qualified;
   const sellers = new Map();
-  for (const item of qualified) {
+  for (const item of toVerify) {
     if (!item.sellerId) continue;
     if (!sellers.has(item.sellerId)) {
       if (sellers.size >= SELLER_CHECK_LIMIT || client.calls >= REQUEST_LIMIT) break;
@@ -447,7 +449,7 @@ export async function discover(
       }
     }
   }
-  const checked = qualified
+  const checked = toVerify
     .filter((i) => sellers.get(i.sellerId)?.country === "UK")
     .map((i) => {
       const s = sellers.get(i.sellerId);
@@ -458,7 +460,7 @@ export async function discover(
         sellerReviews: s.reviews,
       };
     });
-  if (checked.length < qualified.length)
+  if (checked.length < toVerify.length)
     warnings.push("Listings with unverified UK seller location were left out.");
   const wardrobeIds = new Set(wardrobeListings.map((item) => item.id));
   const comparisonRows = new Map(items.map((item) => [item.id, item]));
@@ -490,7 +492,7 @@ export async function discover(
         kind: group.want.kind,
         detailAttempts: group.checked + (wardrobeAttemptsByKind.get(group.want.kind) ?? 0),
         eligibleAfterDetail: qualified.filter((item) => item.kind === group.want.kind).length,
-        eligibleAfterSellerCheck: checked.filter((item) => item.kind === group.want.kind).length,
+        eligibleAfterSellerCheck: checked.filter((item) => item.kind === group.want.kind && eligible(item, profile)).length,
       })),
       warnings,
       limits:

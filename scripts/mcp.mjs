@@ -29,7 +29,9 @@ const profile = z.strictObject({
   styleByKind: z.partialRecord(kind, z.strictObject({
     search: z.string().min(1).max(48).optional(),
     prefer: z.array(z.string().min(1).max(48)).max(4).optional(),
-  })).optional().describe("Turn the shopper’s style into concrete garment-specific phrases, e.g. jackets search waxed and prefer waxed, corduroy collar. These are preferences."),
+    require: z.array(z.string().min(1).max(48)).max(4).optional(),
+    avoid: z.array(z.string().min(1).max(48)).max(4).optional(),
+  })).optional().describe("Use concrete garment-specific phrases. Prefer describes taste. Require and avoid apply only to explicit shopper constraints."),
   logos: z.boolean().optional().describe("Prefer listings with evidence of visible branding."),
   delivery: z.number().min(0).max(30).optional().describe("Delivery allowance in GBP per seller. Defaults to £4.50."),
   strictFit: z.boolean().optional().describe("Defaults to true. Set false only if the shopper accepts unverified sizing."),

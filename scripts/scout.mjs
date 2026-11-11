@@ -1,7 +1,9 @@
+#!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { text } from "node:stream/consumers";
 import { guidedProfile } from "./guided.mjs";
 import { runScout } from "./request.mjs";
+import { shop, shopPrompt } from "./shop.mjs";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -13,10 +15,20 @@ const [command = "wizard", profilePath, ...rest] = args.filter(
 const example = new URL("../examples/profile.json", import.meta.url);
 const money = (amount) => `£${amount.toFixed(2)}`;
 
+async function readRequest() {
+  try {
+    return JSON.parse(await text(process.stdin));
+  } catch {
+    throw new Error("Send a JSON request on stdin, for example {\"profile\": {...}}.");
+  }
+}
+
 function help() {
   console.log(`Secondhand Scout
 
 npm run scout                                         Answer questions and search
+secondhand-scout shop                                  Search, save, skip and find similar items
+secondhand-scout shop --stdin --json                   Agent shopping and feedback
 npm run scout -- wizard --demo                         Answer questions and try sample listings
 npm run scout -- demo [profile.json]                   Try sample listings with a ready-made brief
 npm run scout -- search profile.json                   Search Vinted UK
@@ -27,7 +39,7 @@ node scripts/scout.mjs search --stdin --json            Read a JSON request from
 Add --json for machine-readable results. Use a profile file for saved briefs.`);
 }
 
-function report(result) {
+function report(result, interactive = false) {
   const { basket, meta, profile } = result;
   console.log(
     meta.mode === "demo"
@@ -48,12 +60,16 @@ function report(result) {
     );
     for (const id of group.ids) {
       const item = basket.items.find((entry) => entry.id === id);
+      const index = interactive ? `${basket.items.indexOf(item) + 1}. ` : "";
       console.log(
-        `  ${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})`,
+        `  ${index}${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})`,
       );
       console.log(`    ${item.fit.note}`);
       if (item.styleEvidence?.length)
         console.log(`    Listing mentions ${item.styleEvidence.map((evidence) => evidence.excerpt).join(", ")}.`);
+      const taste = item.tasteEvidence?.filter((evidence) => evidence.source !== "skipped");
+      if (taste?.length)
+        console.log(`    Matches saved or reference styles ${[...new Set(taste.map(({ value }) => value))].join(", ")}.`);
       if (item.deal?.belowMedian > 0) {
         const { belowMedian, comparableSellers } = item.deal;
         console.log(`    ${money(belowMedian)} below the median asking price with fees across ${comparableSellers} comparable sellers.`);
@@ -69,6 +85,14 @@ function report(result) {
     );
   }
   for (const warning of meta.warnings ?? []) console.log(`\n${warning}`);
+  if (result.nearMatches?.length) {
+    console.log("\nWorth asking the seller");
+    for (const near of result.nearMatches) {
+      console.log(`  ${near.title} · ${money(near.estimatedDelivered)} estimated delivered on its own`);
+      for (const question of near.questions) console.log(`    ${question}`);
+      if (near.url) console.log(`    ${near.url}`);
+    }
+  }
   console.log(
     `\n${meta.limits} Confirm shipping and any bundle discount at checkout.`,
   );
@@ -77,6 +101,17 @@ function report(result) {
 try {
   if (["--help", "help", "-h"].includes(command)) {
     help();
+  } else if (command === "shop") {
+    if (profilePath || (stdin && demo))
+      throw new Error("Use shop --stdin --json for agents, or shop [--demo] for the guided flow.");
+    if (stdin) console.log(JSON.stringify(await shop(await readRequest())));
+    else {
+      const profile = await guidedProfile();
+      console.error("This shopping session is stored locally. Scout learns when you save or skip.");
+      const result = await shop({ profile, demo });
+      if (json) console.log(JSON.stringify(result, null, 2));
+      else await shopPrompt(result, (value) => report(value, true));
+    }
   } else {
     if (!["wizard", "demo", "search", "import", "rank"].includes(command))
       throw new Error("Unknown command. Run npm run scout -- help.");
@@ -94,11 +129,7 @@ try {
     const mode = guided ? (demo ? "demo" : "search") : command;
     let body;
     if (stdin) {
-      try {
-        body = JSON.parse(await text(process.stdin));
-      } catch {
-        throw new Error("Send a JSON request on stdin, for example {\"profile\": {...}}.");
-      }
+      body = await readRequest();
     } else {
       const profile = guided
         ? await guidedProfile()

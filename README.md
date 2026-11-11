@@ -24,6 +24,20 @@ Enter what you want, such as `3 shirts, 2 jumpers, 1 gilet`, then answer the siz
 
 To try the same questions with fictional listings, run `npm run scout -- wizard --demo`. For a quick sample without prompts, run `npm run scout -- demo`.
 
+## Shop with saved preferences
+
+Run `npm run scout -- shop` from the checkout, or `secondhand-scout shop` if you installed the package. Enter your brief and then use `save 1`, `skip 2 price` or `more 1 navy` on numbered picks. Use `taste` to see what Scout has learned. A skip can teach Scout about brand, colour, material, style or fit if the listing describes that feature. Price and condition skips apply to the individual listing.
+
+Scout keeps your feedback on the machine running the command in `~/.secondhand-scout/taste.json`. Set `SCOUT_TASTE_FILE` to use a different file. Feedback can change the order of picks and hide skips. It keeps your sizing and total budget in force. If a pick needs a measurement or listing detail checked, Scout may suggest a question for the seller.
+
+Agents use the same command with `--stdin --json`. See [shopping actions for agents](AGENT-QUICKSTART.md#shopping-with-feedback) for examples and how to clear the saved data.
+
+Paste this into a terminal-capable agent chat that has this version of the repository in its workspace.
+
+```text
+Help me shop on Vinted UK with Secondhand Scout. Read AGENT-QUICKSTART.md in the Scout checkout, ask me once for my items, sizes, total delivered budget and style, then use node scripts/scout.mjs shop --stdin --json for my searches and when I say save, skip or more like this. Give me listing links, delivered estimates and any fit questions.
+```
+
 ## Use with Codex or Claude Code
 
 Connect Scout permanently if you want it available across projects.

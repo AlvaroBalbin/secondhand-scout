@@ -156,13 +156,13 @@ function priceDrop({ listing, history }) {
   } : null;
 }
 
-export function searchFeed(state, { profile, now = Date.now(), maxAgeMinutes = 60 } = {}) {
+export function searchFeed(state, { profile, now = Date.now(), maxAgeMinutes = 60, preview = false } = {}) {
   if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes < 1 ||
       now - Date.parse(state.capturedAt) > maxAgeMinutes * 60_000 ||
       Date.parse(state.capturedAt) > now + 5 * 60_000)
     throw new Error("The listing feed is stale or has an invalid freshness limit. Refresh it before searching.");
   const matches = state.records
-    .filter(({ listing }) => listing.available && (!profile || eligible(listing, profile)))
+    .filter(({ listing }) => listing.available && (!profile || eligible(listing, profile, { preview })))
     .map((record) => ({
       ...record, firstSeenAt: record.firstSeenAt ?? record.history[0]?.observedAt ?? record.listing.observedAt,
       priceDrop: priceDrop(record),
