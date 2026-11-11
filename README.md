@@ -5,10 +5,10 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 ## Paste this into an agent chat
 
 ```text
-Use Secondhand Scout for Vinted UK. Ask me in one message for items and quantities, sizes and total budget including delivery. Use Scout if connected. Otherwise clone https://github.com/AlvaroBalbin/secondhand-scout.git and run `node scripts/scout.mjs search --stdin --json` with a JSON request shaped like `{"profile":{"wants":{"jumpers":1},"sizes":"L","budget":50}}`, using my answers. Show listing links and estimated delivered prices. If live search is blocked, give me prefilled Vinted UK search links.
+Find me live Vinted UK deals with Secondhand Scout. Ask me in one message for items and quantities, sizes and budget including delivery. Then use your terminal to clone https://github.com/AlvaroBalbin/secondhand-scout.git in this chat’s workspace and run `node scripts/scout.mjs search --stdin --json` from the clone. Pipe in my answers as JSON like `{"profile":{"wants":{"jumpers":1},"sizes":"L","budget":50}}`. Use only the public repo and Vinted. If terminal approval is needed, request it for the clone or search command. Show the listing links and estimated delivered total. If the command fails, say why and give prefilled Vinted search links.
 ```
 
-Use a chat that can run terminal commands, such as Codex or Claude Code, or one that already has Secondhand Scout connected. For a first search, the agent can run Scout directly from the repository with Git and Node.js 22 or newer. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
+Use a Codex or Claude Code chat with terminal access and Git and Node.js 22 or newer available. The agent handles the clone and search without an npm install or MCP setup. Approve the clone or search if your client asks. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
 
 ## Try it
 
