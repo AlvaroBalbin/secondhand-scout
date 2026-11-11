@@ -1,0 +1,13 @@
+{
+  "name": "secondhand-scout",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "A small secondhand shopping assistant with honest fit checks and bundle-aware budgets.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node scripts/dev.mjs",
+    "scout": "node scripts/scout.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

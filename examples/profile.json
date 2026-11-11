@@ -1,0 +1,13 @@
+{
+  "wants": { "shirts": 4, "jumpers": 2, "gilets": 1 },
+  "brands": "Ralph Lauren, Hackett",
+  "sizes": "M, L",
+  "collar": 41,
+  "department": "men",
+  "budget": 250,
+  "delivery": 4.5,
+  "brief": "White or blue Oxford shirts, wool jumpers and a quilted gilet",
+  "logos": true,
+  "strictFit": true,
+  "clean": true
+}

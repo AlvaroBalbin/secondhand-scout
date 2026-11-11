@@ -1,0 +1,5 @@
+[
+  { "id": "example-1", "kind": "shirts", "title": "White Oxford shirt", "brand": "Ralph Lauren", "size": "16 in", "price": 10, "sellerId": "example-seller", "sellerName": "Example seller", "description": "Collar 41 cm. Embroidered pony." },
+  { "id": "example-2", "kind": "shirts", "title": "Blue Oxford shirt", "brand": "Ralph Lauren", "size": "16 in", "price": 12, "sellerId": "example-seller", "sellerName": "Example seller", "description": "Collar 41 cm. No stains." },
+  { "id": "example-3", "kind": "jumpers", "title": "Grey merino jumper", "brand": "Hackett", "size": "L", "price": 15, "sellerId": "example-knitwear", "sellerName": "Example knitwear seller", "description": "Good used condition." }
+]
