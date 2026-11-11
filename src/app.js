@@ -77,7 +77,7 @@ export async function api(request) {
         path === "/api/import"
           ? await importListings(profile, body.links)
           : await discover(profile);
-      const result = makeResult(found.items, profile, found.meta);
+      const result = makeResult(found.items, profile, found.meta, found.comparables);
       if (cache.size >= 20) cache.delete(cache.keys().next().value);
       cache.set(key, { time: Date.now(), result });
       return json(result);

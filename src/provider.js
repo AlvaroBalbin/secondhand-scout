@@ -1,6 +1,6 @@
 // Reuse the maintained parser and operations from the repo tested in the shopping chat.
 import { searchItems, getSeller } from "../vendor/vinted-client/endpoints.js";
-import { InputError } from "./engine.js";
+import { conditionTier, eligible, InputError, rankItems } from "./engine.js";
 
 export class ProviderError extends Error {
   constructor(message) {
@@ -9,6 +9,9 @@ export class ProviderError extends Error {
   }
 }
 const ORIGIN = "https://www.vinted.co.uk";
+const REQUEST_LIMIT = 32;
+const DETAIL_CHECK_LIMIT = 16;
+const SELLER_CHECK_LIMIT = 9;
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 export class PublicVintedTransport {
   constructor({ fetcher = fetch, delay = 2200, timeout = 12000 } = {}) {
@@ -26,7 +29,7 @@ export class PublicVintedTransport {
       throw new ProviderError(
         "Vinted has blocked this connection. Live search has stopped. Try again later or use listing import.",
       );
-    if (++this.calls > 32)
+    if (++this.calls > REQUEST_LIMIT)
       throw new ProviderError(
         "This search reached its request limit. Try a narrower brief.",
       );
@@ -260,8 +263,8 @@ export async function discover(
                 ? 1904
                 : undefined,
           priceMax: profile.budget - profile.delivery,
-          condition: ["very_good", "new_without_tags", "new_with_tags"],
-          perPage: 48,
+          condition: ["good", "very_good", "new_without_tags", "new_with_tags"],
+          perPage: 96,
           sortBy: "relevance",
         });
         for (const i of r.items) {
@@ -277,41 +280,63 @@ export async function discover(
     }
   }
   // Validate and enrich a bounded shortlist, prioritising size-compatible results.
-  const { rankItems } = await import("./engine.js");
   const relaxed = { ...profile, strictFit: false };
   const ranked = rankItems(items, relaxed);
-  const groups = profile.wants.map((w) =>
-    ranked.filter((i) => i.kind === w.kind).slice(0, w.qty + 5),
-  );
-  const candidates = [];
-  for (let index = 0; index < 12 && candidates.length < 12; index++) {
-    for (const group of groups) {
-      if (group[index] && candidates.length < 12) candidates.push(group[index]);
-    }
+  const countsBySeller = new Map();
+  for (const item of ranked) {
+    if (!item.sellerId || item.fit.status !== "match") continue;
+    if (!countsBySeller.has(item.sellerId)) countsBySeller.set(item.sellerId, new Map());
+    const counts = countsBySeller.get(item.sellerId);
+    counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
   }
-  const enriched = [];
-  for (const item of candidates) {
+  const groups = profile.wants.map((want) => {
+    const matching = ranked.filter((item) => item.kind === want.kind);
+    const bundles = matching.filter((item) => {
+      const counts = countsBySeller.get(item.sellerId);
+      return item.fit.status === "match" && counts &&
+        (counts.size > 1 || (want.qty > 1 && counts.get(item.kind) > 1));
+    });
+    const ordered = [];
+    for (const [index, item] of matching.slice(0, DETAIL_CHECK_LIMIT).entries()) {
+      ordered.push(item);
+      if (bundles[index]) ordered.push(bundles[index]);
+    }
+    return { want, candidates: [...new Set(ordered)], next: 0, checked: 0, qualified: 0 };
+  });
+  const refreshed = new Map();
+  while (refreshed.size < DETAIL_CHECK_LIMIT && (client.calls ?? 0) < REQUEST_LIMIT - 8) {
+    const [group] = groups
+      .filter((g) => g.next < g.candidates.length && g.qualified < g.want.qty + 2)
+      .sort((a, b) => Number(a.qualified >= a.want.qty) - Number(b.qualified >= b.want.qty) ||
+        a.checked - b.checked);
+    if (!group) break;
+    const item = group.candidates[group.next++];
+    if (refreshed.has(item.id)) continue;
+    group.checked++;
     try {
       const detail = await readListing(client, item.url, item.kind);
-      enriched.push({
+      const listing = {
         ...item,
         ...detail,
         size: detail.size || item.size,
         sellerId: detail.sellerId || item.sellerId,
-      });
+        condition: conditionTier(item.condition) ? item.condition : detail.condition,
+      };
+      refreshed.set(item.id, listing);
+      if (eligible(listing, profile)) group.qualified++;
     } catch (e) {
       if (client.blocked) throw e;
+      refreshed.set(item.id, null);
       warnings.push(`Could not recheck ${item.title}. It was left out.`);
     }
   }
+  const enriched = [...refreshed.values()].filter(Boolean);
+  const qualified = enriched.filter((item) => eligible(item, profile));
   const sellers = new Map();
-  for (const item of enriched) {
+  for (const item of qualified) {
     if (!item.sellerId) continue;
     if (!sellers.has(item.sellerId)) {
-      if (sellers.size >= 7) {
-        sellers.set(item.sellerId, null);
-        continue;
-      }
+      if (sellers.size >= SELLER_CHECK_LIMIT || client.calls >= REQUEST_LIMIT) break;
       try {
         const s = await getSeller(client, Number(item.sellerId), "uk");
         sellers.set(item.sellerId, {
@@ -328,7 +353,7 @@ export async function discover(
       }
     }
   }
-  const checked = enriched
+  const checked = qualified
     .filter((i) => sellers.get(i.sellerId)?.country === "UK")
     .map((i) => {
       const s = sellers.get(i.sellerId);
@@ -339,15 +364,22 @@ export async function discover(
         sellerReviews: s.reviews,
       };
     });
-  if (checked.length < enriched.length)
+  if (checked.length < qualified.length)
     warnings.push("Listings with unverified UK seller location were left out.");
   return {
     items: checked,
+    comparables: items.map((item) => refreshed.has(item.id) ? refreshed.get(item.id) : item).filter(Boolean),
     meta: {
       mode: "live",
       source: "Vinted UK via googlarz/vinted-mcp-cli",
       searched: items.length,
       detailChecked: enriched.length,
+      coverage: groups.map((group) => ({
+        kind: group.want.kind,
+        detailAttempts: group.checked,
+        eligibleAfterDetail: group.qualified,
+        eligibleAfterSellerCheck: checked.filter((item) => item.kind === group.want.kind).length,
+      })),
       warnings,
       limits:
         "Bounded search, not the entire marketplace. Label photos and authenticity have not been verified.",

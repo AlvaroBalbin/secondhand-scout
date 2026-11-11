@@ -93,6 +93,12 @@ The response includes candidate items, fit notes, the suggested basket, seller g
 
 Scout compares the listings it sees. It checks sizing and defects described in listing text. Check photos for label size, wear and authenticity. The estimate includes listed fees when available, a fee estimate otherwise and one delivery allowance per seller. Confirm the bundle and final total at checkout.
 
+## How Scout finds value
+
+Scout looks for the basket that fills the most of your brief within your delivered budget. It considers all eligible candidates it checked, including items beyond the displayed shortlist, and preserves affordable paths while weighing fit, condition and style. It charges one estimated postage amount per seller and shows the estimated postage saved by bundling.
+
+When there is enough evidence, Scout compares an item's price with fees against a median from at least four other sellers. The comparisons use the same brand, garment type, listed condition and any style or material signalled in the title. Each seller contributes one observation. The reference uses asking prices from the observed catalogue or supplied listings. A low price without enough comparable sellers still counts toward a cheaper basket.
+
 Live search is experimental. It uses the catalogue parser from [googlarz/vinted-mcp-cli](https://github.com/googlarz/vinted-mcp-cli) and stops if Vinted denies access. Use the live modes only where permitted by the [Vinted UK terms](https://www.vinted.co.uk/terms-and-conditions). The local rank command works with your own listing data without marketplace access.
 
 MIT licensed. The reused client modules retain their [upstream licence](vendor/vinted-client/LICENSE).

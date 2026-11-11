@@ -44,6 +44,7 @@ export function normalizeListings(listings) {
       currency: item.currency ?? "GBP",
       size: field(item.size),
       brand: field(item.brand),
+      condition: field(item.condition),
       description: field(item.description, 3000),
       sellerId: field(item.sellerId) || null,
       sellerName: field(item.sellerName),

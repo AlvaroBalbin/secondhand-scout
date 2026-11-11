@@ -9,6 +9,7 @@ import {
 } from "../src/engine.js";
 import {
   PublicVintedTransport,
+  discover,
   parseListingUrl,
   readListing,
 } from "../src/provider.js";
@@ -81,7 +82,77 @@ test("one delivery allowance per seller keeps the basket within budget", () => {
   assert.equal(result.basket.items.length, 3);
   assert.equal(result.basket.cost.parcels, 2);
   assert.equal(result.basket.cost.total, 43);
+  assert.equal(result.basket.cost.bundleDeliverySavings, 5);
   assert.equal(result.basket.missing.length, 0);
+});
+
+test("the benchmark uses other comparable sellers and includes fees", () => {
+  const shopper = validateProfile({ wants: { shirts: 1 }, sizes: "L", collar: 41, budget: 50 });
+  const listing = {
+    ...shirt, id: "deal", sellerId: "target", price: 8, fee: 2, condition: "Very good",
+  };
+  const peer = (sellerId, price) => ({ ...listing, id: sellerId, sellerId, price, fee: 1 });
+  const others = [
+    peer("one", 17), peer("two", 19), peer("three", 21), peer("four", 40),
+    { ...peer("four", 45), id: "duplicate-seller-listing" },
+    { ...peer("target", 99), id: "own-seller-listing" },
+    { ...peer("cashmere", 100), title: "Cashmere shirt" },
+    { ...peer("good", 5), condition: "Good" },
+    { ...peer("unavailable", 80), available: false },
+    { ...peer("wrong-size", 100), size: "43" },
+    { ...peer("defect", 1), description: "Rip on the sleeve." },
+  ];
+  const result = makeResult([listing], shopper, { mode: "live" }, [listing, ...others]);
+  const { deal } = result.basket.items[0];
+  assert.deepEqual(deal, {
+    source: "observed_catalogue",
+    comparableSellers: 4,
+    medianItemPrice: 20,
+    medianWithFees: 21,
+    itemWithFees: 10,
+    belowMedian: 11,
+    feesEstimated: false,
+  });
+  const thin = makeResult([listing], shopper, { mode: "live" }, [listing, ...others.slice(0, 3)]);
+  assert.equal(thin.basket.items[0].deal, null);
+});
+
+test("an affordable bundle can use candidates outside the displayed shortlist", () => {
+  const shopper = validateProfile({ wants: { shirts: 1, jackets: 1 }, sizes: "L", budget: 23, delivery: 3 });
+  const distractors = Array.from({ length: 50 }, (_, index) => ({
+    ...shirt, id: `cheap-${index}`, sellerId: `seller-${index}`, size: "L", price: 4, fee: 0,
+  }));
+  const bundle = [
+    { ...shirt, id: "bundle-shirt", sellerId: "bundle", size: "L", price: 5, fee: 0 },
+    { ...shirt, id: "bundle-jacket", sellerId: "bundle", kind: "jackets", title: "Waxed jacket", size: "L", price: 15, fee: 0 },
+  ];
+  const result = makeResult([...distractors, ...bundle], shopper);
+  assert.ok(result.items.every((item) => item.kind === "shirts"));
+  assert.deepEqual(result.basket.items.map(({ id }) => id), ["bundle-shirt", "bundle-jacket"]);
+  assert.equal(result.basket.cost.total, 23);
+  assert.deepEqual(result.basket.missing, []);
+});
+
+test("knitwear search excludes a sweatshirt even if the title says sweater", () => {
+  const shopper = validateProfile({ wants: { jumpers: 1 }, sizes: "L", budget: 50 });
+  const jumper = { ...shirt, kind: "jumpers", size: "L" };
+  const result = makeResult([
+    { ...jumper, id: "sweatshirt", title: "Hackett sweater dark green", description: "Large Hackett green sweatshirt", price: 5 },
+    { ...jumper, id: "knitwear", title: "Hackett cotton jumper", description: "No rips or tears", price: 14 },
+  ], shopper);
+  assert.deepEqual(result.basket.items.map(({ id }) => id), ["knitwear"]);
+});
+
+test("the same listing link and a known size mismatch cannot fill the basket", () => {
+  const shopper = validateProfile({ wants: { jumpers: 3 }, sizes: "L", budget: 50, strictFit: false });
+  const jumper = { ...shirt, kind: "jumpers", title: "Merino jumper", size: "L" };
+  const result = makeResult([
+    { ...jumper, id: "first", url: "https://www.vinted.co.uk/items/123-merino-jumper" },
+    { ...jumper, id: "duplicate", url: "https://www.vinted.co.uk/items/123" },
+    { ...jumper, id: "wrong-size", size: "M" },
+  ], shopper);
+  assert.equal(result.basket.items.length, 1);
+  assert.deepEqual(result.basket.missing, [{ kind: "jumpers", qty: 2 }]);
 });
 
 test("listing input and same-item redirects stay on Vinted UK", async () => {
@@ -155,6 +226,49 @@ test("listing detail reads the size value and separates the displayed fee", asyn
   assert.equal(item.size, "16 in | 40 cm");
   assert.equal(item.fee, 1.2);
   assert.equal(item.available, true);
+});
+
+test("discovery replaces bad detail matches and checks sellers only for qualified items", async () => {
+  const shopper = validateProfile({ wants: { shirts: 1, jumpers: 1 }, sizes: "L", budget: 50 });
+  const catalog = (id, title, price) => ({
+    id, title, url: `/items/${id}`, user: { id },
+    price: { amount: price, currencyCode: "GBP" },
+    itemBox: { firstLine: "Hackett", secondLine: "L · Very good" },
+  });
+  const jumpers = Array.from({ length: 9 }, (_, i) => catalog(i + 101, "Merino jumper", i + 3));
+  const rows = [catalog(200, "Oxford shirt", 10), ...jumpers];
+  const sellerChecks = [];
+  const client = {
+    pageGet: async (_country, path) => ({
+      items: path.includes("search_text=shirt") ? rows.slice(0, 1) : jumpers,
+      pagination: { totalEntries: rows.length },
+    }),
+    fetchHtml: async (url) => {
+      const id = Number(url.split("/").pop());
+      const row = rows.find((item) => item.id === id);
+      const product = {
+        "@type": "Product", name: row.title, brand: { name: "Hackett" },
+        description: id < 109 ? "Stain on the sleeve." : "No stains.",
+        offers: {
+          price: row.price.amount, priceCurrency: "GBP",
+          availability: "https://schema.org/InStock", itemCondition: "https://schema.org/UsedCondition",
+        },
+      };
+      return { body: `<script type="application/ld+json">${JSON.stringify(product)}</script><a href="/member/${id}">Seller</a>` };
+    },
+    apiGet: async (_country, path) => {
+      const id = Number(path.split("/").pop());
+      sellerChecks.push(id);
+      return { user: { id, country_code: "UK", login: `seller-${id}` } };
+    },
+  };
+  const found = await discover(shopper, { client });
+  assert.deepEqual(sellerChecks, [200, 109]);
+  assert.deepEqual(found.items.map(({ id, condition }) => [id, condition]), [["200", "Very good"], ["109", "Very good"]]);
+  assert.deepEqual(found.meta.coverage[1], {
+    kind: "jumpers", detailAttempts: 9, eligibleAfterDetail: 1, eligibleAfterSellerCheck: 1,
+  });
+  assert.equal(makeResult(found.items, shopper, found.meta, found.comparables).basket.items.length, 2);
 });
 
 test("API ranks supplied listings and returns a client error for invalid input", async () => {

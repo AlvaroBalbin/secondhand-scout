@@ -40,6 +40,8 @@ function report(result) {
   console.log(
     `Items ${money(basket.cost.itemTotal)}, ${basket.cost.feesEstimated ? "estimated fees" : "listed fees"} ${money(basket.cost.fees)}, delivery allowance ${money(basket.cost.delivery)} across ${basket.cost.parcels} seller groups`,
   );
+  if (basket.cost.bundleDeliverySavings > 0)
+    console.log(`Estimated postage saved by buying together ${money(basket.cost.bundleDeliverySavings)}`);
   for (const group of basket.cost.groups) {
     console.log(
       `\n${group.seller}${group.count > 1 ? ` (${group.count} listings to consider bundling)` : ""}`,
@@ -50,6 +52,10 @@ function report(result) {
         `  ${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})`,
       );
       console.log(`    ${item.fit.note}`);
+      if (item.deal?.belowMedian > 0) {
+        const { belowMedian, comparableSellers } = item.deal;
+        console.log(`    ${money(belowMedian)} below the median asking price with fees across ${comparableSellers} comparable sellers.`);
+      }
       if (item.url) console.log(`    ${item.url}`);
     }
   }
