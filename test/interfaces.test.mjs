@@ -38,6 +38,26 @@ test("guided CLI cancels when the answers end early", () => {
   assert.match(result.stderr, /Shopping brief cancelled/);
 });
 
+test("an agent can rank a brief and supplied listings using stdin only", () => {
+  const result = spawnSync(process.execPath, [script("scout"), "rank", "--stdin", "--json"], {
+    input: JSON.stringify({
+      profile: { wants: { jumpers: 1 }, sizes: "L", budget: 30 },
+      listings: [
+        { kind: "jumpers", title: "Merino jumper", size: "L", price: 10 },
+        { kind: "jumpers", title: "Cotton jumper", size: "S", price: 3 },
+      ],
+    }),
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  const { basket, meta } = JSON.parse(result.stdout);
+  assert.equal(meta.mode, "manual");
+  assert.deepEqual(basket.items.map(({ title }) => title), ["Merino jumper"]);
+  assert.ok(basket.cost.total <= 30);
+});
+
 test("MCP client discovers tools and ranks real-shaped input without marketplace access", async (t) => {
   const transport = new StdioClientTransport({
     command: process.execPath,

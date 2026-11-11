@@ -1,12 +1,14 @@
 import { readFile } from "node:fs/promises";
+import { text } from "node:stream/consumers";
 import { guidedProfile } from "./guided.mjs";
 import { runScout } from "./request.mjs";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
 const demo = args.includes("--demo");
+const stdin = args.includes("--stdin");
 const [command = "wizard", profilePath, ...rest] = args.filter(
-  (arg) => arg !== "--json" && arg !== "--demo",
+  (arg) => !["--json", "--demo", "--stdin"].includes(arg),
 );
 const example = new URL("../examples/profile.json", import.meta.url);
 const money = (amount) => `£${amount.toFixed(2)}`;
@@ -20,6 +22,7 @@ npm run scout -- demo [profile.json]                   Try sample listings with 
 npm run scout -- search profile.json                   Search Vinted UK
 npm run scout -- import profile.json URL [URL ...]     Check shared listings
 npm run scout -- rank profile.json listings.json       Rank supplied listings
+node scripts/scout.mjs search --stdin --json            Read a JSON request from stdin
 
 Add --json for machine-readable results. Use a profile file for saved briefs.`);
 }
@@ -67,29 +70,43 @@ try {
   } else {
     if (!["wizard", "demo", "search", "import", "rank"].includes(command))
       throw new Error("Unknown command. Run npm run scout -- help.");
+    if (stdin && (command === "wizard" || profilePath || demo))
+      throw new Error("Use --stdin with search, import, rank or demo and no file arguments.");
     if (demo && (command !== "wizard" || profilePath))
       throw new Error("Use --demo with the guided wizard.");
     if (command === "wizard" && profilePath)
       throw new Error("Use wizard without a profile file, or search with a saved profile.");
-    if (!profilePath && ["import", "rank"].includes(command))
+    if (!stdin && !profilePath && ["import", "rank"].includes(command))
       throw new Error(
         "Provide a profile JSON file. See examples/profile.json.",
       );
-    const guided = command === "wizard" || (command === "search" && !profilePath);
+    const guided = !stdin && (command === "wizard" || (command === "search" && !profilePath));
     const mode = guided ? (demo ? "demo" : "search") : command;
-    const profile = guided
-      ? await guidedProfile()
-      : JSON.parse(await readFile(profilePath ?? example, "utf8"));
-    const body = { profile };
-    if (command === "import") body.links = rest;
-    if (command === "rank") {
-      if (rest.length !== 1) throw new Error("Provide a listings JSON file.");
-      body.listings = JSON.parse(await readFile(rest[0], "utf8"));
+    let body;
+    if (stdin) {
+      try {
+        body = JSON.parse(await text(process.stdin));
+      } catch {
+        throw new Error("Send a JSON request on stdin, for example {\"profile\": {...}}.");
+      }
+    } else {
+      const profile = guided
+        ? await guidedProfile()
+        : JSON.parse(await readFile(profilePath ?? example, "utf8"));
+      body = { profile };
+      if (command === "import") body.links = rest;
+      if (command === "rank") {
+        if (rest.length !== 1) throw new Error("Provide a listings JSON file.");
+        body.listings = JSON.parse(await readFile(rest[0], "utf8"));
+      }
     }
     if (guided && mode === "search") console.error("Searching Vinted UK for your shortlist...");
     const { ok, result } = await runScout(mode, body);
     if (!ok) throw new Error(result.error);
-    if (json) console.log(JSON.stringify(result, null, 2));
+    if (json && stdin) {
+      const { profile, basket, meta } = result;
+      console.log(JSON.stringify({ profile, basket, meta }));
+    } else if (json) console.log(JSON.stringify(result, null, 2));
     else report(result);
   }
 } catch (error) {

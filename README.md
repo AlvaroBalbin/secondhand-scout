@@ -2,6 +2,14 @@
 
 Rank secondhand clothing by your sizes, preferred brands and total budget. Scout explains each pick and groups items from the same seller so you can consider a bundle.
 
+## Paste this into an agent chat
+
+```text
+Use Secondhand Scout to find me deals on Vinted UK. Follow https://github.com/AlvaroBalbin/secondhand-scout/blob/main/AGENT-QUICKSTART.md, ask me in one message for whatever you need, then run the search and show me the best links and estimated cost including delivery.
+```
+
+Use a chat that can run terminal commands, such as Codex or Claude Code, or one that already has Secondhand Scout connected. For a first search, the agent can run Scout directly from the repository with Git and Node.js 22 or newer. [Agent quickstart](AGENT-QUICKSTART.md)
+
 ## Try it
 
 Requires Git and Node.js 22 or newer. Run these commands in your terminal.
@@ -9,7 +17,6 @@ Requires Git and Node.js 22 or newer. Run these commands in your terminal.
 ```sh
 git clone https://github.com/AlvaroBalbin/secondhand-scout.git
 cd secondhand-scout
-npm ci
 npm run scout
 ```
 
@@ -19,7 +26,9 @@ To try the same questions with fictional listings, run `npm run scout -- wizard 
 
 ## Use with Codex or Claude Code
 
-Install the repo using the steps above through `npm ci`. From inside the cloned folder, run the command for your agent in PowerShell or a macOS/Linux shell.
+Connect Scout permanently if you want it available across projects.
+
+Clone the repo and run `npm ci` inside it. Then run the command for your agent in PowerShell or a macOS/Linux shell.
 
 ```sh
 # Codex CLI and the Codex app
@@ -53,6 +62,8 @@ npm run scout -- import examples/profile.json https://www.vinted.co.uk/items/ITE
 ```
 
 Add `--json` for structured output. Use `npm run --silent scout -- … --json` or call `node scripts/scout.mjs` directly if you need stdout to contain only JSON.
+
+With `--stdin`, send the same request body as the corresponding API endpoint below. With `--json`, this mode prints the profile, basket and search metadata.
 
 ## Local API
 
