@@ -37,6 +37,7 @@ export async function api(request, rankingOptions = {}) {
       throw new InputError("The shopping brief could not be read.");
     }
     const profile = validateProfile(body?.profile);
+    const deep = body.depth === "deep";
     if (path === "/api/demo")
       return json(
         makeResult(demoItems(profile), profile, {
@@ -59,14 +60,14 @@ export async function api(request, rankingOptions = {}) {
     if (path === "/api/search" && process.env.SCOUT_FEED_FILE) {
       try {
         const state = await readFeed(process.env.SCOUT_FEED_FILE);
-        const found = searchFeed(state, { profile, preview: rankingOptions.nearMatches,
+        const found = searchFeed(state, { profile, deep, preview: rankingOptions.nearMatches,
           maxAgeMinutes: Number(process.env.SCOUT_FEED_MAX_AGE_MINUTES || 60) });
         return json(makeResult(found.items, profile, found.meta, found.comparables, rankingOptions));
       } catch {
         return json({ error: "The configured listing feed is unavailable or stale. Refresh it before searching.", type: "provider_unavailable" }, 503);
       }
     }
-    const key = JSON.stringify({ path, profile, links: body.links });
+    const key = JSON.stringify({ path, profile, links: body.links, deep });
     const personalised = rankingOptions.personal || rankingOptions.nearMatches;
     const hit = personalised ? null : cache.get(key);
     if (hit && Date.now() - hit.time < 300000)
@@ -88,7 +89,7 @@ export async function api(request, rankingOptions = {}) {
       const found =
         path === "/api/import"
           ? await importListings(profile, body.links)
-          : await discover(profile, { preview: rankingOptions.nearMatches });
+          : await discover(profile, { preview: rankingOptions.nearMatches, deep, excludeIds: rankingOptions.excludeIds });
       const result = makeResult(found.items, profile, found.meta, found.comparables, rankingOptions);
       if (!personalised) {
         if (cache.size >= 20) cache.delete(cache.keys().next().value);

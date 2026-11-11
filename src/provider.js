@@ -224,6 +224,7 @@ export async function readListing(client, reference, kind) {
     description: String(ld.description || "").slice(0, 3000),
     url,
     photoUrl: validImage(Array.isArray(ld.image) ? ld.image[0] : ld.image),
+    photoUrls: [...new Set((Array.isArray(ld.image) ? ld.image : [ld.image]).map(validImage).filter(Boolean))].slice(0, 12),
     sellerId: sellerId || null,
     sellerName: "",
     condition: ld.offers?.itemCondition?.split("/").pop() || "Not specified",
@@ -236,11 +237,12 @@ export async function readListing(client, reference, kind) {
 export async function discover(
   profile,
   { client = new PublicVintedTransport(), onProgress = () => {}, expandWardrobes = true,
-    extraSearches = true, onSnapshot, preview = false } = {},
+    extraSearches = true, onSnapshot, preview = false, deep = false, excludeIds = new Set() } = {},
 ) {
   const items = [],
     warnings = [],
     seen = new Set();
+  let queryCount = 0;
   const brands = profile.brands.length ? profile.brands : [""];
   const searches = [];
   for (const want of profile.wants) {
@@ -252,11 +254,12 @@ export async function discover(
       const collarCm = profile.fitByKind[want.kind].collarCm;
       const collar = collarCm === null ? "" : String(collarSearchInches(collarCm));
       const query = [brand, kind, collar].filter(Boolean).join(" ");
-      searches.push({ want, query, fits: 0 });
+      searches.push({ want, query, brand, collar, fits: 0 });
     }
   }
   async function search(entry, order) {
     const { want, query } = entry;
+    queryCount++;
     onProgress(query);
     try {
       const result = await searchItems(client, {
@@ -279,7 +282,7 @@ export async function discover(
         const listing = clean(item, want.kind);
         seen.add(key);
         items.push(listing);
-        if (eligible(listing, profile)) entry.fits++;
+        if (!excludeIds.has(listing.id) && eligible(listing, profile)) entry.fits++;
       }
     } catch (error) {
       if (client.blocked || !items.length) throw error;
@@ -298,16 +301,23 @@ export async function discover(
       styledKinds.add(kind);
       focused.push({ entry: { ...entry, query: `${entry.query} ${phrase}` }, order: "relevance" });
     }
-    const additional = [...focused, ...[SORT_VALUE.price_low_to_high, SORT_VALUE.newest_first]
-      .map((order, index) => ({ entry: gaps[index % gaps.length], order }))].slice(0, 2);
+    const alternativeNames = { shirts: "button down shirt", jumpers: "knit sweater",
+      gilets: "body warmer", jackets: "coat", trousers: "chinos", shoes: "loafers" };
+    const variants = gaps.slice(0, 2).map((entry) => ({ entry: { ...entry,
+      query: [entry.brand, alternativeNames[entry.want.kind], entry.collar].filter(Boolean).join(" ") },
+      order: "relevance" }));
+    const sorting = [SORT_VALUE.price_low_to_high, SORT_VALUE.newest_first]
+      .map((order, index) => ({ entry: gaps[index % gaps.length], order }));
+    const additional = (deep ? [...focused.slice(0, 2), ...variants, ...sorting] : [...focused, ...sorting])
+      .slice(0, deep ? 5 : 2);
     for (const { entry, order } of additional) {
-      if ((client.calls ?? 0) >= 11) break;
+      if ((client.calls ?? 0) >= (deep ? 13 : 11)) break;
       await search(entry, order);
     }
   }
   // Validate and enrich a bounded shortlist, prioritising size-compatible results.
   const relaxed = { ...profile, strictFit: false };
-  const ranked = rankItems(items, relaxed, { preview: true });
+  const ranked = rankItems(items.filter(item => !excludeIds.has(item.id)), relaxed, { preview: true });
   const countsBySeller = new Map();
   for (const item of ranked) {
     if (!item.sellerId || item.fit.status !== "match") continue;
@@ -397,7 +407,8 @@ export async function discover(
         continue;
       }
       const candidates = inventory.flatMap((row) => {
-        if (refreshed.has(String(row.id)) || wardrobeListings.some((item) => item.id === String(row.id))) return [];
+        if (excludeIds.has(String(row.id)) || refreshed.has(String(row.id)) ||
+            wardrobeListings.some((item) => item.id === String(row.id))) return [];
         try {
           parseListingUrl(row.url);
         } catch {
@@ -480,6 +491,7 @@ export async function discover(
       mode: "live",
       source: "Vinted UK via googlarz/vinted-mcp-cli",
       searched: items.length,
+      queryCount,
       detailChecked: enriched.length,
       wardrobesChecked,
       wardrobeItemsSeen,

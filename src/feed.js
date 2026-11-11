@@ -156,7 +156,7 @@ function priceDrop({ listing, history }) {
   } : null;
 }
 
-export function searchFeed(state, { profile, now = Date.now(), maxAgeMinutes = 60, preview = false } = {}) {
+export function searchFeed(state, { profile, now = Date.now(), maxAgeMinutes = 60, preview = false, deep = false } = {}) {
   if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes < 1 ||
       now - Date.parse(state.capturedAt) > maxAgeMinutes * 60_000 ||
       Date.parse(state.capturedAt) > now + 5 * 60_000)
@@ -179,12 +179,14 @@ export function searchFeed(state, { profile, now = Date.now(), maxAgeMinutes = 6
       .sort((a, b) => b.priceDrop.amount - a.priceDrop.amount);
     const styles = profile.styleByKind?.[kind]?.prefer ?? [];
     const styled = styles.length ? candidates.filter(({ listing }) => listingStyleEvidence(listing, styles).length) : [];
-    return [...new Set([...candidates.slice(0, 48), ...bundleOptions.slice(0, 24), ...recent.slice(0, 8), ...reduced.slice(0, 8), ...styled.slice(0, 8)])];
+    const scale = deep ? 2 : 1;
+    return [...new Set([...candidates.slice(0, 48 * scale), ...bundleOptions.slice(0, 24 * scale),
+      ...recent.slice(0, 8 * scale), ...reduced.slice(0, 8 * scale), ...styled.slice(0, 8 * scale)])];
   }) : matches;
   const items = selected.map(({ listing, priceDrop, firstSeenAt }) => ({ ...listing, priceDrop, firstSeenAt }));
   return { items, comparables: matches.map(({ listing }) => listing), meta: {
     mode: "feed", source: state.source, observedAt: state.capturedAt, searched: matches.length,
-    considered: items.length,
+    considered: items.length, depth: deep ? "deep" : "standard",
     warnings: [], limits: "Availability and price reflect the most recent feed observation.",
   } };
 }

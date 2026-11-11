@@ -4,9 +4,10 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { runScout } from "./request.mjs";
 import { replaceSkipped } from "./replacement.mjs";
+import { verifyBasket } from "./verify.mjs";
 import { calculateCosts, validateProfile } from "../src/engine.js";
 import { normalizeListings } from "../src/listings.js";
-import { describeTaste, feedbackFor, listingMemory, personalRanking, skipReasons, styleField } from "../src/taste.js";
+import { describeTaste, feedbackFor, listingMemory, outcomeFor, personalRanking, skipReasons, styleField } from "../src/taste.js";
 
 const statePath = () => resolve(process.env.SCOUT_TASTE_FILE || join(homedir(), ".secondhand-scout", "taste.json"));
 const empty = () => ({ version: 1, feedback: [], recent: [], last: null });
@@ -75,7 +76,7 @@ async function feedbackTurn(state, request, file) {
   if (new Set(events.map(({ id }) => id)).size !== events.length)
     throw new Error("Give one save or skip choice per listing.");
   const changedIds = new Set(events.map(({ id }) => id));
-  state.feedback = [...events, ...state.feedback.filter(({ id }) => !changedIds.has(id))].slice(0, 200);
+  state.feedback = [...events, ...state.feedback.filter(({ id, action }) => action === "outcome" || !changedIds.has(id))].slice(0, 200);
   state.last.bundleAt = { ...state.last.bundleAt, ...bundleAt };
   await store(file, state);
 
@@ -163,7 +164,8 @@ function moreProfile(profile, anchor, style) {
 export async function shop(request, file = statePath()) {
   const action = request?.action ?? "search";
   if (action === "taste") return { action, taste: describeTaste((await readState(file)).feedback) };
-  if (!["search", "more", "save", "skip", "feedback", "replace", "forget"].includes(action)) throw new Error("Unknown Scout shop action.");
+  if (action === "verify") return { action, ...await verifyBasket((await readState(file)).last, request.ids) };
+  if (!["search", "explore", "more", "save", "skip", "feedback", "outcome", "replace", "forget"].includes(action)) throw new Error("Unknown Scout shop action.");
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   let lock;
   try {
@@ -180,11 +182,21 @@ export async function shop(request, file = statePath()) {
       return { action, taste: describeTaste([]) };
     }
     if (action === "feedback") return await feedbackTurn(state, request, file);
+    if (action === "outcome") {
+      const item = remembered(state, request.id ?? state.numbers[request.number - 1]);
+      if (item.demo) throw new Error("Only record outcomes for real or supplied listings.");
+      const event = outcomeFor(item, request.outcome, request.fitArea);
+      state.feedback = [event, ...state.feedback.filter(previous => previous.id !== event.id ||
+        previous.action !== "outcome" || (previous.reason === "bought") !== (event.reason === "bought") ||
+        (previous.fitArea ?? "overall") !== (event.fitArea ?? "overall"))].slice(0, 200);
+      await store(file, state);
+      return { action, id: item.id, outcome: event.reason, taste: describeTaste(state.feedback) };
+    }
     if (action === "save" || action === "skip") {
       const item = remembered(state, request.id);
       if (item.demo) throw new Error("Use a real or supplied listing to teach Scout your taste.");
       const event = feedbackFor(item, action, request.reason, request.trait);
-      state.feedback = [event, ...state.feedback.filter((previous) => previous.id !== event.id)].slice(0, 200);
+      state.feedback = [event, ...state.feedback.filter(previous => previous.action === "outcome" || previous.id !== event.id)].slice(0, 200);
       await store(file, state);
       return { action, id: event.id, reason: event.reason, taste: describeTaste(state.feedback) };
     }
@@ -198,26 +210,47 @@ export async function shop(request, file = statePath()) {
       return { action, ...result, picks: numbered(state), taste: describeTaste(state.feedback) };
     }
     const anchor = action === "more" ? remembered(state, request.id) : null;
-    if (anchor && !state.last) throw new Error("Run a shopping search before requesting more like this.");
+    const explore = action === "explore";
+    const preview = Boolean(anchor || explore);
+    if (preview && !state.last) throw new Error("Run a shopping search before looking for alternatives.");
     if (anchor && !Object.hasOwn(state.last.profile.wants, anchor.kind))
       throw new Error("That listing is outside the current brief. Start a new search for its clothing type.");
-    const profile = anchor ? moreProfile(state.last.profile, anchor, request.style) : request.profile;
+    let profile = anchor ? moreProfile(state.last.profile, anchor, request.style) :
+      explore ? state.last.profile : request.profile;
+    if (explore) {
+      const missing = basketView(state.last.basket, validateProfile(profile)).missing;
+      const kind = request.kind ?? (missing.length === 1 ? missing[0].kind : undefined);
+      if (kind) {
+        if (!Object.hasOwn(profile.wants, kind)) throw new Error("Choose a garment type in the active brief.");
+        const only = (fields) => Object.fromEntries(Object.entries(fields ?? {}).filter(([key]) => key === kind));
+        profile = { ...profile, wants: { [kind]: missing.find(want => want.kind === kind)?.qty ?? profile.wants[kind] },
+          fitByKind: only(profile.fitByKind), styleByKind: only(profile.styleByKind) };
+      }
+    }
     const mode = request.listings ? "rank" : request.links ? "import" :
-      anchor ? (state.last.mode === "import" ? "search" : state.last.mode) : request.demo ? "demo" : "search";
+      preview ? (state.last.mode === "import" ? "search" : state.last.mode) : request.demo ? "demo" : "search";
     if (mode === "rank" && !request.listings)
-      throw new Error("Pass the supplied listings again to replay a more-like-this search.");
+      throw new Error("Pass the supplied listings again to replay an alternative search.");
     if (mode === "rank" && (!Array.isArray(request.listings) ||
         request.listings.some((item) => typeof item?.id !== "string" || !item.id.trim())))
       throw new Error("Give each supplied listing a stable string ID for shopping feedback.");
     const feedback = request.personalise === false ? [] : state.feedback;
-    const { ok, result } = await runScout(mode, { profile, listings: request.listings, links: request.links }, {
-      personal: personalRanking(feedback, anchor,
-        anchor ? [...(request.style?.prefer ?? []), ...(request.style?.require ?? [])] : [], profile),
+    const personal = personalRanking(feedback, anchor,
+      anchor ? [...(request.style?.prefer ?? []), ...(request.style?.require ?? [])] : [], profile);
+    const activeIds = new Set(explore ? state.last.basket.map(({ id }) => id) : []);
+    const activeSellers = new Set(explore ? state.last.basket.map(({ sellerId }) => sellerId).filter(Boolean) : []);
+    const bundleRequired = (item) => explore && state.last.bundleAt?.[item.kind] <=
+      state.last.basket.filter(({ kind }) => kind === item.kind).length + 1;
+    const { ok, result } = await runScout(mode, { profile, listings: request.listings, links: request.links,
+      depth: request.depth ?? (explore ? "deep" : undefined) }, {
+      personal: { ...personal, allow: (item) => !activeIds.has(item.id) && personal.allow(item) &&
+        (!bundleRequired(item) || activeSellers.has(item.sellerId)) },
+      excludeIds: activeIds,
       nearMatches: true,
     });
     if (!ok) throw new Error(result.error);
     const affordable = result.items.filter((item) => calculateCosts([item], result.profile).total <= result.profile.budget);
-    if (anchor) {
+    if (preview) {
       const active = state.last.basket;
       updateShortlist(state, active, [...result.basket.items, ...affordable], mode === "demo",
         Math.max(6, result.basket.items.length));

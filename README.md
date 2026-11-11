@@ -36,6 +36,8 @@ After a skip, use `replace 2` to look for a cheaper alternative to that basket s
 
 Pick numbers stay with their listings throughout the chat. Similar-item searches leave the current basket intact. In chat, you can make a slot conditional by saying “only add a fourth shirt if it can bundle.” Scout checks the sellers already in your basket for that slot and leaves it open if no eligible shirt qualifies.
 
+Ask the agent to look deeper, recheck finalists or remember how a bought item fit. Deep searches vary the query while keeping fit and budget. Finalist checks return current listing evidence, available photo links and a seller question when needed. Fit outcomes affect the ranking of evidenced cuts and preserve explicit measurements in the brief.
+
 ## Use with Codex or Claude Code
 
 Connect Scout permanently if you want it available across projects.
@@ -138,8 +140,12 @@ Ask for measurements when they're important to fit. Scout recognises declared me
 ```sh
 node scripts/benchmark.mjs replay examples/benchmark.json
 node scripts/benchmark.mjs capture examples/profile.json work/search-snapshot.json
+node scripts/benchmark.mjs capture examples/profile.json work/deep-snapshot.json --deep
+node scripts/benchmark.mjs compare work/search-snapshot.json work/deep-snapshot.json
 node scripts/benchmark.mjs replay work/search-snapshot.json
 ```
+
+For repeated comparisons, run `node scripts/benchmark.mjs suite work/suite.json` with a version 1 object containing a `source` description and `cases`. Each case has `standard` and `expanded` snapshots for the same brief. The report counts coverage changes and price changes at equal coverage. Record whether cases come from separate live captures or variations of a shared inventory.
 
 Create `work/` first for a capture. The replay compares catalogue-only and wardrobe-expanded baskets over the same observed listings and price references. It reports filled requests, fit evidence, parcel count, cost at equal coverage and ranking time. Add `suitableIds` to a local snapshot to compare picks with your own suitability labels. This measures the effect of wardrobe additions in that capture. Discovery time covers the recorded search. Keep real snapshots local.
 
@@ -157,6 +163,16 @@ node scripts/feed.mjs sync work/feed-state.json /path/to/authorised-delta.json
 Set `SCOUT_FEED_FILE` to the state file when running the CLI, API or MCP server. Scout uses the feed for searches and requires it to be recent. The default freshness limit is 60 minutes, configurable with `SCOUT_FEED_MAX_AGE_MINUTES`. To sync over HTTPS, set `SCOUT_FEED_URL` and optionally `SCOUT_FEED_TOKEN`, then omit the batch filename. The sync passes the last cursor as `cursor` and writes the new state only after validation. See the [feed contract](examples/feed-snapshot.json).
 
 Run `node scripts/feed.mjs watch work/feed-state.json` to poll the authorised HTTPS feed at its permitted interval. Set `SCOUT_FEED_POLL_SECONDS` to control the interval. Updates use `mode: "delta"` and may supply `removedIds`. Keep timestamps increasing and treat removals as unavailable. Price changes are tracked per listing, and fresh listings and price drops get room in the shortlist.
+
+## Hosted search API
+
+Run `node scripts/dev.mjs --hosted` or build the included Dockerfile. Set `SCOUT_FEED_FILE` to a synced state file and expose the service over HTTPS. `PORT` defaults to 4317. Set `SCOUT_SEARCH_TOKEN` for bearer authentication when sharing privately. `GET /v1/health` checks the process and `POST /v1/search` accepts the same brief as the local search API, with optional `"depth":"deep"`. Hosted search is read-only, returns the feed observation time, and fails when the feed is stale or missing.
+
+Once you have a hosted URL, paste this into a terminal-capable agent chat.
+
+```text
+Be my Secondhand Scout. Ask what I want, my sizes and my delivered budget, then POST {"profile":{...}} to MY_SCOUT_URL/v1/search. Show the listing links, fit notes and delivered basket estimate. Use depth "deep" if I ask you to look further.
+```
 
 Live search is experimental. It uses the catalogue parser from [googlarz/vinted-mcp-cli](https://github.com/googlarz/vinted-mcp-cli) and stops if Vinted denies access. Use the live modes only where permitted by the [Vinted UK terms](https://www.vinted.co.uk/terms-and-conditions). The local rank command works with your own listing data without marketplace access.
 

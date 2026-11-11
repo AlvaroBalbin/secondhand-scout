@@ -90,18 +90,34 @@ function audit(corpus) {
   }, style: { cases: styleCases.length, correct: styleCases.length - styleErrors.length, errors: styleErrors }, baskets };
 }
 
+function compare(standard, deeper) {
+  if (JSON.stringify(validateProfile(standard.profile)) !== JSON.stringify(validateProfile(deeper.profile)))
+    throw new Error("Capture both searches with the same brief.");
+  const baseline = replay(standard);
+  const expanded = replay(deeper);
+  const first = baseline.withWardrobes;
+  const second = expanded.withWardrobes;
+  const equalCoverage = JSON.stringify(first.missing) === JSON.stringify(second.missing);
+  return { baseline, expanded, extraFilled: second.filled - first.filled,
+    savingsAtEqualCoverage: equalCoverage && first.filled ? Math.round((first.total - second.total) * 100) / 100 : null,
+    newPicks: second.picked.filter(id => !first.picked.includes(id)),
+    captureGapSeconds: Math.round(Math.abs(Date.parse(standard.capturedAt) - Date.parse(deeper.capturedAt)) / 1000) || 0 };
+}
+
 try {
-  const [command, ...args] = process.argv.slice(2);
+  const [command, ...options] = process.argv.slice(2);
+  const deep = options.includes("--deep");
+  const args = options.filter((option) => option !== "--deep");
   if (command === "capture" && args.length === 2) {
     const input = await readJson(args[0]);
     const profile = validateProfile(input);
     const start = performance.now();
     let snapshot;
-    const found = await discover(profile, { onSnapshot: (data) => { snapshot = data; } });
+    const found = await discover(profile, { deep, onSnapshot: (data) => { snapshot = data; } });
     const record = { version: 1, source: "live_capture", name: args[0],
-      profile: input, liveDiscoveryMs: Math.round(performance.now() - start), ...snapshot,
+      profile: input, depth: deep ? "deep" : "standard", liveDiscoveryMs: Math.round(performance.now() - start), ...snapshot,
       discovery: {
-        searched: found.meta.searched, detailChecked: found.meta.detailChecked,
+        searched: found.meta.searched, queries: found.meta.queryCount, detailChecked: found.meta.detailChecked,
         wardrobesChecked: found.meta.wardrobesChecked, wardrobeItemsSeen: found.meta.wardrobeItemsSeen,
         wardrobeDetailAttempts: found.meta.wardrobeDetailAttempts, wardrobeMatches: found.meta.wardrobeMatches,
         coverage: found.meta.coverage, warnings: found.meta.warnings,
@@ -113,8 +129,20 @@ try {
     console.log(JSON.stringify(results, null, 2));
   } else if (command === "audit" && args.length === 1) {
     console.log(JSON.stringify(audit(await readJson(args[0])), null, 2));
+  } else if (command === "compare" && args.length === 2) {
+    console.log(JSON.stringify(compare(...await Promise.all(args.map(readJson))), null, 2));
+  } else if (command === "suite" && args.length === 1) {
+    const suite = await readJson(args[0]);
+    if (suite.version !== 1 || !Array.isArray(suite.cases) || !suite.cases.length)
+      throw new Error("Use a version 1 suite with standard and expanded snapshots.");
+    const cases = suite.cases.map(({ standard, expanded }) => compare(standard, expanded));
+    console.log(JSON.stringify({ source: suite.source, count: cases.length,
+      moreFilled: cases.filter(result => result.extraFilled > 0).length,
+      fewerFilled: cases.filter(result => result.extraFilled < 0).length,
+      cheaperAtEqualCoverage: cases.filter(result => result.savingsAtEqualCoverage > 0).length,
+      dearerAtEqualCoverage: cases.filter(result => result.savingsAtEqualCoverage < 0).length, cases }, null, 2));
   } else {
-    throw new Error("Run node scripts/benchmark.mjs replay SNAPSHOT.json […], capture PROFILE.json SNAPSHOT.json, or audit CORPUS.json.");
+    throw new Error("Run benchmark.mjs replay SNAPSHOT.json […], capture PROFILE.json SNAPSHOT.json [--deep], compare BASE DEEP, suite SUITE.json, or audit CORPUS.json.");
   }
 } catch (error) {
   console.error(error.message);
