@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
-import { makeResult, validateProfile } from "../src/engine.js";
+import { assessFit, disclosedDefects, listingStyleEvidence, makeResult, validateProfile } from "../src/engine.js";
 import { normalizeListings } from "../src/listings.js";
 import { discover } from "../src/provider.js";
 
@@ -49,6 +49,47 @@ function replay(snapshot) {
   };
 }
 
+function audit(corpus) {
+  if (corpus.version !== 1 || !Array.isArray(corpus.condition) || !Array.isArray(corpus.fit) ||
+      !Array.isArray(corpus.baskets)) throw new Error("Use a version 1 labelled audit corpus.");
+  const condition = { truePositive: 0, falsePositive: 0, falseNegative: 0, trueNegative: 0, errors: [] };
+  for (const { id, title, description, defective } of corpus.condition) {
+    if (typeof defective !== "boolean") throw new Error(`Missing condition label for ${id}.`);
+    const found = disclosedDefects(`${title} ${description || ""}`);
+    condition[found ? defective ? "truePositive" : "falsePositive" : defective ? "falseNegative" : "trueNegative"]++;
+    if (found !== defective) condition.errors.push({ id, expected: defective, found });
+  }
+  const fitErrors = corpus.fit.flatMap(({ item, profile, expected }) => {
+    if (!["match", "unknown", "excluded"].includes(expected)) throw new Error(`Invalid fit label for ${item.id}.`);
+    const found = assessFit(item, validateProfile(profile)).status;
+    return found === expected ? [] : [{ id: item.id, expected, found }];
+  });
+  const styleCases = corpus.style ?? [];
+  const styleErrors = styleCases.flatMap(({ item, term, expected }) => {
+    if (typeof expected !== "boolean") throw new Error(`Missing style label for ${item.id}.`);
+    const found = listingStyleEvidence(item, [term]).length > 0;
+    return found === expected ? [] : [{ id: item.id, term, expected, found }];
+  });
+  const bad = new Set(corpus.condition.filter((item) => item.defective).map((item) => String(item.id)));
+  const unconfirmed = new Set(corpus.fit.filter((entry) => entry.expected !== "match").map((entry) => String(entry.item.id)));
+  const baskets = corpus.baskets.map((snapshot) => {
+    const profile = validateProfile(snapshot.profile);
+    const pool = rows([...snapshot.catalogue, ...snapshot.wardrobe]);
+    const comparable = snapshot.comparables ? rows(snapshot.comparables) : pool;
+    const { basket } = makeResult(pool, profile, { mode: "manual" }, comparable);
+    const flagged = basket.items.filter((item) => bad.has(item.id) ||
+      (snapshot.unconfirmedFitIds ?? []).includes(item.id) && unconfirmed.has(item.id));
+    return {
+      name: snapshot.name, filled: basket.items.length, total: basket.cost.total,
+      parcels: basket.cost.parcels, flaggedPicks: flagged.map((item) => item.id),
+      picked: basket.items.map((item) => item.id), missing: basket.missing,
+    };
+  });
+  return { source: corpus.source, condition, fit: {
+    cases: corpus.fit.length, correct: corpus.fit.length - fitErrors.length, errors: fitErrors,
+  }, style: { cases: styleCases.length, correct: styleCases.length - styleErrors.length, errors: styleErrors }, baskets };
+}
+
 try {
   const [command, ...args] = process.argv.slice(2);
   if (command === "capture" && args.length === 2) {
@@ -70,8 +111,10 @@ try {
   } else if (command === "replay" && args.length) {
     const results = await Promise.all(args.map(async (file) => replay(await readJson(file))));
     console.log(JSON.stringify(results, null, 2));
+  } else if (command === "audit" && args.length === 1) {
+    console.log(JSON.stringify(audit(await readJson(args[0])), null, 2));
   } else {
-    throw new Error("Run node scripts/benchmark.mjs replay SNAPSHOT.json […] or capture PROFILE.json SNAPSHOT.json.");
+    throw new Error("Run node scripts/benchmark.mjs replay SNAPSHOT.json […], capture PROFILE.json SNAPSHOT.json, or audit CORPUS.json.");
   }
 } catch (error) {
   console.error(error.message);

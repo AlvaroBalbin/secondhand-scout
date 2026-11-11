@@ -4,6 +4,7 @@ import { api } from "../src/app.js";
 import {
   assessFit,
   disclosedDefects,
+  listingStyleEvidence,
   makeResult,
   validateProfile,
 } from "../src/engine.js";
@@ -63,6 +64,41 @@ test("children’s label is excluded even when the listing says L", () => {
 test("a disclosed stain is caught even after an unrelated negation", () => {
   assert.equal(disclosedDefects("No holes, stains or damage."), false);
   assert.equal(disclosedDefects("No holes. Tiny stain on the sleeve."), true);
+});
+
+test("disclosed marks, wear and missing fasteners are detected with scoped negation", () => {
+  for (const text of [
+    "Great condition except for one small mark on the front.",
+    "Second-last button missing, easily fixable.",
+    "Some internal bobbling and the collar is a little faded.",
+    "No holes, but the zipper pull came off.",
+  ]) assert.equal(disclosedDefects(text), true, text);
+  for (const text of [
+    "No signs of any damage or wear.",
+    "Free of grubby marks, yellowing or staining.",
+    "No missing buttons. Marks & Spencer shirt in a faded denim wash.",
+    "Fully working zip, lost weight and it is too large for me.",
+    "Light general wear consistent with a pre-owned item.",
+    "Excellent condition. Just needs an iron.",
+  ]) assert.equal(disclosedDefects(text), false, text);
+});
+
+test("size evidence distinguishes missing labels, seller sizing and tag conflicts", () => {
+  const shopper = validateProfile({ wants: { jumpers: 1 }, sizes: "L", budget: 50 });
+  const item = { kind: "jumpers", title: "Merino jumper", size: "L" };
+  assert.equal(assessFit({ ...item, description: "I can’t see a size label, but I would say L." }, shopper).status, "unknown");
+  assert.equal(assessFit({ ...item, description: "Marked size XXL but fits a size large." }, shopper).status, "excluded");
+  assert.equal(assessFit({ ...item, description: "Size medium." }, shopper).status, "unknown");
+  assert.equal(assessFit({ ...item, size: "", description: "Size: Men’s Large." }, shopper).status, "match");
+  assert.equal(assessFit({ ...item, size: "", title: "Merino jumper, L", description: "Soft wool.\nLarge\nGood condition." }, shopper).status, "match");
+  assert.equal(assessFit({ ...item, size: "", title: "Merino jumper large men’s" }, shopper).status, "match");
+  assert.equal(assessFit({ ...item, size: "", title: "Merino jumper with large pockets" }, shopper).status, "unknown");
+});
+
+test("a comparison to another garment does not count as style evidence", () => {
+  const item = { title: "Formal shirt", description: "Smooth cotton (not the rough stuff you get on a lot of Oxford shirts)." };
+  assert.deepEqual(listingStyleEvidence(item, ["oxford"]), []);
+  assert.equal(listingStyleEvidence({ ...item, title: "Oxford shirt" }, ["oxford"])[0].field, "title");
 });
 
 test("one delivery allowance per seller keeps the basket within budget", () => {

@@ -54,13 +54,15 @@ function garmentFits(input, wants, sizes, collar) {
   }));
 }
 
+const STYLE_PHRASE = /^[\p{L}\p{N}][\p{L}\p{N} '\u2019-]{0,47}$/u;
+
 function garmentStyles(input, wants) {
   const styles = input.styleByKind ?? {};
   if (typeof styles !== "object" || Array.isArray(styles) ||
       Object.keys(styles).some((kind) => !wants.some((want) => want.kind === kind)))
     throw new InputError("Set style only for clothing types in the shopping brief.");
   const phrase = (value) => {
-    if (typeof value !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N} '\u2019-]{0,47}$/u.test(value.trim()))
+    if (typeof value !== "string" || !STYLE_PHRASE.test(value.trim()))
       throw new InputError("Use short clothing phrases for style preferences.");
     return value.trim().replace(/ +/g, " ");
   };
@@ -242,15 +244,7 @@ export function assessFit(item, p) {
     }
   }
   if (spec.sizes.length) {
-    const tokens = size.split(/[^A-Z0-9.]+/).filter(Boolean);
-    const match = spec.sizes.some((s) => tokens.includes(s) || size === s);
-    const letterSize = /^(?:X{0,4}S|M|X{0,4}L|[2-5]XL)$/;
-    const mismatch = !match && spec.sizes.every((s) => letterSize.test(s)) && tokens.some((s) => letterSize.test(s));
-    checks.push({
-      status: match ? "match" : mismatch ? "excluded" : "unknown",
-      note: match ? "Listed size matches. Confirm garment measurements." :
-        mismatch ? "Listed size is outside your requested sizes." : "Size is not confirmed for your brief.",
-    });
+    checks.push(checkListedSize(item, spec.sizes));
   }
   for (const [key, field] of Object.entries(measurementFields)) {
     if (!spec[key]) continue;
@@ -268,14 +262,74 @@ export function assessFit(item, p) {
   return { status, note: checks.map((c) => c.note).join(" ") || "Size is not confirmed for your brief.", checks };
 }
 
+const LETTER_SIZE = /^(?:X{0,4}S|M|X{0,4}L)$/;
+const LETTER_WORD = "(?:[2-5]xl|x{0,4}s|m|x{0,4}l|extra[ -]+small|extra[ -]+large|small|medium|large)";
+const TAGGED_SIZE = new RegExp(`\\b(?:labelled|labeled|tagged|marked|(?:label|tag)\\s+(?:says|reads))\\s*(?:as\\s+)?(?:size\\s*)?[:=]?\\s*(${LETTER_WORD})\\b`, "i");
+const STATED_SIZE = new RegExp(`\\bsize\\s*[:=]?\\s*(?:men(?:'s|’s|s)?\\s+)?(${LETTER_WORD})\\b`, "i");
+const SIZE_LINE = new RegExp(`^[ \\t]*(?:(?:mens?|womens?)[ \\t]+)?(${LETTER_WORD})[ \\t]*$`, "im");
+const TITLE_SIZE = new RegExp(`(?:,|\\(| - |\\b(?:mens?|womens?)\\s+)\\s*(${LETTER_WORD})\\s*\\)?$`, "i");
+const GARMENT_SIZE_TAIL = new RegExp(
+  `\\b(?:shirt|jumper|sweater|cardigan|gilet|gillet|vest|body[ -]?warmer|jacket|coat|blazer|trousers)\\s+(${LETTER_WORD})(?:\\s+(?:mens?|womens?))?$`,
+  "i",
+);
+const LABEL_UNAVAILABLE = /\b(?:no (?:size )?(?:label|tag)|(?:cant|cannot) see (?:a |the )?(?:size )?(?:label|tag)|(?:size )?(?:label|tag) (?:is )?(?:missing|removed|cut out))\b/;
+
+function sizeToken(value) {
+  const token = String(value).trim().toUpperCase().replace(/[- ]+/g, " ");
+  const aliases = { SMALL: "S", MEDIUM: "M", LARGE: "L", "EXTRA SMALL": "XS", "EXTRA LARGE": "XL" };
+  if (/^[2-5]XL$/.test(token)) return "X".repeat(Number(token[0])) + "L";
+  return aliases[token] ?? token;
+}
+
+function checkListedSize(item, wanted) {
+  const text = [norm(item.description), norm(item.title)];
+  const size = String(item.size || "").trim();
+  const listed = [sizeToken(size), ...size.split(/[^A-Z0-9.]+/i).map(sizeToken)].filter(Boolean);
+  const expected = wanted.map(sizeToken);
+  const tagged = text.map((part) => part.match(TAGGED_SIZE)?.[1]).filter(Boolean).map(sizeToken);
+  const stated = [
+    text[0].match(STATED_SIZE)?.[1] ?? text[0].match(SIZE_LINE)?.[1],
+    text[1].match(STATED_SIZE)?.[1] ?? text[1].match(TITLE_SIZE)?.[1] ?? text[1].match(GARMENT_SIZE_TAIL)?.[1],
+  ].filter(Boolean).map(sizeToken);
+  const labelMissing = text.some((part) => LABEL_UNAVAILABLE.test(part));
+  const listedLetters = listed.filter((token) => LETTER_SIZE.test(token));
+  const letterFit = expected.every((token) => LETTER_SIZE.test(token));
+  const eligibleSizes = tagged.length ? tagged : letterFit && stated.length ? stated : listed.length ? listed : stated;
+  const inconsistent = new Set(tagged).size > 1 || (!tagged.length &&
+    (new Set(stated).size > 1 || listedLetters.length > 0 && stated.some((token) => !listedLetters.includes(token))));
+  if (inconsistent || (labelMissing && !tagged.length))
+    return { status: "unknown", note: inconsistent ? "Size evidence conflicts. Ask for the label or measurements." :
+      "Seller could not confirm the size label. Ask for garment measurements." };
+  const match = expected.some((token) => eligibleSizes.includes(token));
+  const mismatch = !match && letterFit && eligibleSizes.some((token) => LETTER_SIZE.test(token));
+  return {
+    status: match ? "match" : mismatch ? "excluded" : "unknown",
+    note: match ? (tagged.length ? "Seller reports a matching tag size. Check the label photo." :
+      "Listed size matches. Confirm garment measurements.") : mismatch ?
+      "Listed size is outside your requested sizes." : "Size is not confirmed for your brief.",
+  };
+}
+
+const FASTENER = "(?:zip(?:per)?s?|buttons?|press[ -]studs?|poppers?)";
+const DAMAGE_WORD = "(?:holes?|stains?|staining|rips?|tears?|damage[d]?|fray(?:ed|ing)?|discolou?r(?:ation|ed|ing)|yellowing|bobbl(?:es?|ing)|pilling|fad(?:ed|ing))";
+const NEGATED_ISSUE = `(?:${DAMAGE_WORD}|marks?|wear|flaws?|(?:missing|broken|lost)\\s+${FASTENER}|${FASTENER}\\s+(?:missing|broken|lost))`;
+const NEGATED_LIST = new RegExp(
+  `\\b(?:no|without|free (?:of|from))\\s+(?:signs? of\\s+)?(?:(?:any|visible|noticeable|major|grubby)\\s+){0,2}${NEGATED_ISSUE}\\b` +
+  `(?:\\s*(?:,|\\bor\\b|\\band\\b)\\s*(?:(?:visible|noticeable|major|grubby)\\s+)?${NEGATED_ISSUE}\\b)*`,
+  "g",
+);
+const FASTENER_DAMAGE = new RegExp(
+  `\\b(?:(?:missing|lost|broken)\\s+(?:\\w+\\s+){0,2}${FASTENER}|${FASTENER}[^.!?,;\\n]{0,25}\\b(?:missing|lost|broken|came off))\\b`,
+);
+const MARK_DISCLOSURE = /\b(?:(?:tiny|small|light|slight|minor|faint|few|some|one|two|visible|grubby)\s+(?:\w+\s+)?marks?|(?:has|have|with|there (?:is|are))\s+marks?|marks?\s+(?:on|near|by|as shown|pictured|photographed))\b/;
+const DAMAGE = new RegExp(`\\b${DAMAGE_WORD}\\b`);
+
 export function disclosedDefects(text) {
-  const t = norm(text).replace(
-    /(?:no|without|free of|free from)\s+(?:(?:any|visible|noticeable|major)\s+)?(?:holes?|stains?|marks?|damage|flaws?|rips?|tears?)(?:\s*(?:,|or|and)\s*(?:holes?|stains?|marks?|damage|flaws?|rips?|tears?))*/g,
-    "",
-  );
-  return /\b(?:stains?|holes?|rips?|tears?)\b|fray|broken|(?:missing|lost)\s+(?:zip|zipper|button)|(?:zip|zipper).{0,30}(?:missing|lost)|needs?\s+(?:repair|fix)/.test(
-    t,
-  );
+  const remaining = norm(text).replace(NEGATED_LIST, " ")
+    .replace(/\bmarks\s*(?:&|and)\s*spencer\b/g, " ")
+    .replace(/\b(?:faded|fading) (?:denim )?(?:wash|effect|style)\b/g, " ");
+  return DAMAGE.test(remaining) || FASTENER_DAMAGE.test(remaining) ||
+    MARK_DISCLOSURE.test(remaining) || /\bneeds?\s+(?:a\s+)?(?:repair|fix|replacement)\b/.test(remaining);
 }
 
 export function eligible(item, p) {
@@ -405,14 +459,17 @@ function comparePrice(item, groups, source) {
 
 export function listingStyleEvidence(item, preferences = []) {
   return preferences.flatMap((term) => {
+    if (typeof term !== "string" || !STYLE_PHRASE.test(term)) return [];
     const phrase = term.split(/[ -]+/).join("[\\s-]+");
     const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${phrase}(?![\\p{L}\\p{N}])`, "giu");
     for (const field of ["title", "description"]) {
       const value = String(item[field] ?? "");
       for (const match of value.matchAll(pattern)) {
         const before = value.slice(Math.max(0, match.index - 45), match.index);
+        const clause = value.slice(Math.max(0, match.index - 140), match.index).split(/[.!?;\n(),]/).at(-1);
         const after = value.slice(match.index + match[0].length);
         if (/\b(?:no|not|without|faux|imitation)(?:[\s-]+\w+){0,2}[\s-]+$/i.test(before) ||
+            /\b(?:not the|unlike|compared (?:with|to)|rather than|instead of)\b/i.test(clause) ||
             /^[\s-]+(?:style|effect|look|imitation)\b/i.test(after)) continue;
         return [{ term, field, excerpt: match[0] }];
       }

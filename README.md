@@ -131,6 +131,8 @@ node scripts/benchmark.mjs replay work/search-snapshot.json
 
 Create `work/` first for a capture. The replay compares catalogue-only and wardrobe-expanded baskets over the same observed listings and price references. It reports filled requests, fit evidence, parcel count, cost at equal coverage and ranking time. Add `suitableIds` to a local snapshot to compare picks with your own suitability labels. This measures the effect of wardrobe additions in that capture. Discovery time covers the recorded search. Keep real snapshots local.
 
+Run `node scripts/benchmark.mjs audit work/labelled-corpus.json` for a text-evidence audit. A version 1 corpus has `condition` rows with `id`, `title`, `description` and a boolean `defective` label, `fit` rows with `item`, `profile` and an expected fit status, and `baskets` containing replay snapshots. Optional `style` rows have `item`, `term` and a boolean `expected` label. Keep the labels fixed across versions. The audit measures what listings disclose in text. Garment photos and actual fit need separate checks.
+
 ## Connect an authorised feed
 
 Scout can read from a local index synced from an authorised Vinted UK feed or export. The input is a versioned JSON snapshot followed by timestamped deltas. Stable listing IDs and seller IDs allow price history, availability updates and bundle checks.
