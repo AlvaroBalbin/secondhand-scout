@@ -52,6 +52,8 @@ function report(result) {
         `  ${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})`,
       );
       console.log(`    ${item.fit.note}`);
+      if (item.styleEvidence?.length)
+        console.log(`    Listing mentions ${item.styleEvidence.map((evidence) => evidence.excerpt).join(", ")}.`);
       if (item.deal?.belowMedian > 0) {
         const { belowMedian, comparableSellers } = item.deal;
         console.log(`    ${money(belowMedian)} below the median asking price with fees across ${comparableSellers} comparable sellers.`);

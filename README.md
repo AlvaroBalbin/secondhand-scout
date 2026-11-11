@@ -5,7 +5,7 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 ## Paste this into an agent chat
 
 ```text
-Find me live Vinted UK deals with Secondhand Scout. Ask me in one message for items, quantities, fit per item type and budget including delivery. Clone https://github.com/AlvaroBalbin/secondhand-scout.git in this chat’s workspace and run `node scripts/scout.mjs search --stdin --json` from the clone. Pipe in my answers like `{"profile":{"wants":{"jumpers":1},"fitByKind":{"jumpers":{"sizes":["L"]}},"budget":50}}`. Use the public repo and Vinted. If needed, request approval for the clone or search. Show links and estimated delivered total. If blocked, say why and give prefilled Vinted searches.
+Find me live Vinted UK deals with Secondhand Scout. Ask me in one message for items, quantities, fit per item type, budget including delivery and any style preferences. Clone https://github.com/AlvaroBalbin/secondhand-scout.git in this chat’s workspace and run `node scripts/scout.mjs search --stdin --json` from the clone. Pipe in my answers like `{"profile":{"wants":{"jumpers":1},"fitByKind":{"jumpers":{"sizes":["L"]}},"styleByKind":{"jumpers":{"search":"V-neck","prefer":["merino"]}},"budget":50}}`, using style fields only for my preferences. Use the public repo and Vinted. If needed, request approval for the clone or search. Show links and estimated delivered total. If blocked, say why and give prefilled Vinted searches.
 ```
 
 Use a Codex or Claude Code chat with terminal access and Git and Node.js 22 or newer available. The agent handles the clone and search without an npm install or MCP setup. Approve the clone or search if your client asks. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
@@ -100,6 +100,8 @@ Scout looks for the basket that fills the most of your brief within your deliver
 When there is enough evidence, Scout compares an item's price with fees against a median from at least four other sellers. The comparisons use the same brand, garment type, listed condition and any style or material signalled in the title. Each seller contributes one observation. The reference uses asking prices from the observed catalogue or supplied listings. A low price without enough comparable sellers still counts toward a cheaper basket.
 
 For live search, Scout gives thin results another look through cheap and recent catalogue entries. It also checks up to two promising sellers' wardrobes and rechecks candidate listings before adding them to a basket. The search has a fixed request budget.
+
+Codex or Claude can translate a shopper’s style into `styleByKind`. Each garment type accepts a short `search` phrase and up to four `prefer` phrases. Scout keeps the broad search and can use up to two existing follow-up searches for focused queries. It gives a modest preference to items with matching listing wording and reports the exact wording it found. Fit and total budget still apply. The agent supplies the language model, so Scout needs no separate model API key.
 
 ## Fit by garment
 

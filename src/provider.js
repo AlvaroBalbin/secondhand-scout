@@ -292,10 +292,20 @@ export async function discover(
   for (const query of searches) await search(query, "relevance");
   if (extraSearches) {
     const gaps = [...searches].sort((a, b) => a.fits / a.want.qty - b.fits / b.want.qty);
-    const orders = [SORT_VALUE.price_low_to_high, SORT_VALUE.newest_first];
-    for (const [index, order] of orders.entries()) {
+    const styledKinds = new Set();
+    const focused = [];
+    for (const entry of gaps) {
+      const kind = entry.want.kind;
+      const phrase = profile.styleByKind?.[kind]?.search;
+      if (!phrase || styledKinds.has(kind)) continue;
+      styledKinds.add(kind);
+      focused.push({ entry: { ...entry, query: `${entry.query} ${phrase}` }, order: "relevance" });
+    }
+    const additional = [...focused, ...[SORT_VALUE.price_low_to_high, SORT_VALUE.newest_first]
+      .map((order, index) => ({ entry: gaps[index % gaps.length], order }))].slice(0, 2);
+    for (const { entry, order } of additional) {
       if ((client.calls ?? 0) >= 11) break;
-      await search(gaps[index % gaps.length], order);
+      await search(entry, order);
     }
   }
   // Validate and enrich a bounded shortlist, prioritising size-compatible results.

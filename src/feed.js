@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { open, readFile, rename, unlink } from "node:fs/promises";
 import { normalizeListings } from "./listings.js";
-import { eligible } from "./engine.js";
+import { eligible, listingStyleEvidence } from "./engine.js";
 
 const MAX_ROWS = 20_000;
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -177,7 +177,9 @@ export function searchFeed(state, { profile, now = Date.now(), maxAgeMinutes = 6
     const recent = [...candidates].sort((a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt));
     const reduced = candidates.filter((candidate) => candidate.priceDrop)
       .sort((a, b) => b.priceDrop.amount - a.priceDrop.amount);
-    return [...new Set([...candidates.slice(0, 48), ...bundleOptions.slice(0, 24), ...recent.slice(0, 8), ...reduced.slice(0, 8)])];
+    const styles = profile.styleByKind?.[kind]?.prefer ?? [];
+    const styled = styles.length ? candidates.filter(({ listing }) => listingStyleEvidence(listing, styles).length) : [];
+    return [...new Set([...candidates.slice(0, 48), ...bundleOptions.slice(0, 24), ...recent.slice(0, 8), ...reduced.slice(0, 8), ...styled.slice(0, 8)])];
   }) : matches;
   const items = selected.map(({ listing, priceDrop, firstSeenAt }) => ({ ...listing, priceDrop, firstSeenAt }));
   return { items, comparables: matches.map(({ listing }) => listing), meta: {

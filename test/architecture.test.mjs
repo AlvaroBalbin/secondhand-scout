@@ -32,6 +32,49 @@ test("garment fit uses separate evidence and keeps explicit contradictions out",
   }), /Unsupported fit/);
 });
 
+test("agent style preferences influence only the requested garment and need listing evidence", () => {
+  const profile = validateProfile({
+    wants: { jackets: 1, jumpers: 1 }, sizes: "L", budget: 60, delivery: 0,
+    styleByKind: { jackets: { search: "waxed", prefer: ["waxed", "corduroy collar"] } },
+  });
+  const row = { size: "L", price: 15, condition: "Very good", currency: "GBP", fee: 0 };
+  const result = makeResult([
+    { ...row, id: "generic", kind: "jackets", title: "Outdoor jacket" },
+    { ...row, id: "match", kind: "jackets", title: "Waxed jacket", price: 17,
+      description: "Corduroy collar." },
+    { ...row, id: "negative", kind: "jackets", title: "Outdoor jacket",
+      description: "Not waxed. No corduroy collar." },
+    { ...row, id: "jumper", kind: "jumpers", title: "Merino jumper",
+      description: "Corduroy collar." },
+  ], profile);
+  assert.equal(result.basket.items.find((item) => item.kind === "jackets").id, "match");
+  assert.deepEqual(result.basket.items.find((item) => item.id === "match").styleEvidence, [
+    { term: "waxed", field: "title", excerpt: "Waxed" },
+    { term: "corduroy collar", field: "description", excerpt: "Corduroy collar" },
+  ]);
+  assert.deepEqual(result.items.find((item) => item.id === "negative").styleEvidence, []);
+  assert.deepEqual(result.items.find((item) => item.id === "jumper").styleEvidence, []);
+  assert.throws(() => validateProfile({
+    wants: { jackets: 1 }, sizes: "L", budget: 60,
+    styleByKind: { jackets: { prefer: ["(waxed.*)"] } },
+  }), /short clothing phrases/);
+});
+
+test("focused queries retain broad search and stay inside the existing follow-up cap", async () => {
+  const profile = validateProfile({
+    wants: { jackets: 1 }, sizes: "L", budget: 50,
+    styleByKind: { jackets: { search: "waxed", prefer: ["waxed"] } },
+  });
+  const calls = [];
+  const client = { pageGet: async (_country, path) => {
+    const params = new URL(path, "https://www.vinted.co.uk").searchParams;
+    calls.push([params.get("search_text"), params.get("order")]);
+    return { items: [], pagination: {} };
+  } };
+  await discover(profile, { client });
+  assert.deepEqual(calls, [["jacket", "relevance"], ["jacket waxed", "relevance"], ["jacket", "price_asc"]]);
+});
+
 test("seller wardrobe fills a missing type and one parcel covers both items", async () => {
   const profile = validateProfile({ wants: { shirts: 1, jumpers: 1 }, sizes: "L", budget: 30, delivery: 5 });
   const page = (id, title, sellerId, amount) => ({

@@ -106,10 +106,13 @@ test("MCP client discovers tools and ranks real-shaped input without marketplace
     { kind: "shirts", title: "Blue Oxford shirt", price: 11, size: "41", sellerId: "seller" },
     { kind: "shirts", title: "Striped Oxford shirt", price: 2, size: "39", sellerId: "other" },
   ];
-  const ranked = await client.callTool({ name: "rank_listings", arguments: { profile, listings } });
+  const ranked = await client.callTool({ name: "rank_listings", arguments: {
+    profile: { ...profile, styleByKind: { shirts: { prefer: ["Oxford"] } } }, listings,
+  } });
   assert.equal(ranked.structuredContent.meta.mode, "manual");
   assert.equal(ranked.structuredContent.basket.items.length, 2);
   assert.equal(ranked.structuredContent.basket.cost.parcels, 1);
+  assert.equal(ranked.structuredContent.basket.items[0].styleEvidence[0].excerpt, "Oxford");
   assert.ok(ranked.structuredContent.basket.cost.total <= profile.budget);
 
   const invalid = await client.callTool({

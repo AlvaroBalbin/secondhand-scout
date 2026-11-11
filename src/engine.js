@@ -54,6 +54,28 @@ function garmentFits(input, wants, sizes, collar) {
   }));
 }
 
+function garmentStyles(input, wants) {
+  const styles = input.styleByKind ?? {};
+  if (typeof styles !== "object" || Array.isArray(styles) ||
+      Object.keys(styles).some((kind) => !wants.some((want) => want.kind === kind)))
+    throw new InputError("Set style only for clothing types in the shopping brief.");
+  const phrase = (value) => {
+    if (typeof value !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N} '\u2019-]{0,47}$/u.test(value.trim()))
+      throw new InputError("Use short clothing phrases for style preferences.");
+    return value.trim().replace(/ +/g, " ");
+  };
+  return Object.fromEntries(Object.entries(styles).map(([kind, style]) => {
+    if (!style || typeof style !== "object" || Array.isArray(style) ||
+        Object.keys(style).some((key) => key !== "search" && key !== "prefer") ||
+        (style.prefer != null && (!Array.isArray(style.prefer) || style.prefer.length > 4)))
+      throw new InputError("Each clothing type can have one search phrase and up to four preferences.");
+    return [kind, {
+      search: style.search == null ? "" : phrase(style.search),
+      prefer: unique((style.prefer ?? []).map((value) => phrase(value).toLowerCase())),
+    }];
+  }));
+}
+
 export function validateProfile(input) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new InputError("Enter a shopping brief.");
@@ -109,6 +131,7 @@ export function validateProfile(input) {
     collar,
     sizes,
     fitByKind,
+    styleByKind: garmentStyles(input, wants),
     department,
     brief: String(input.brief ?? "").slice(0, 400),
     logos: !!input.logos,
@@ -380,6 +403,24 @@ function comparePrice(item, groups, source) {
   };
 }
 
+export function listingStyleEvidence(item, preferences = []) {
+  return preferences.flatMap((term) => {
+    const phrase = term.split(/[ -]+/).join("[\\s-]+");
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${phrase}(?![\\p{L}\\p{N}])`, "giu");
+    for (const field of ["title", "description"]) {
+      const value = String(item[field] ?? "");
+      for (const match of value.matchAll(pattern)) {
+        const before = value.slice(Math.max(0, match.index - 45), match.index);
+        const after = value.slice(match.index + match[0].length);
+        if (/\b(?:no|not|without|faux|imitation)(?:[\s-]+\w+){0,2}[\s-]+$/i.test(before) ||
+            /^[\s-]+(?:style|effect|look|imitation)\b/i.test(after)) continue;
+        return [{ term, field, excerpt: match[0] }];
+      }
+    }
+    return [];
+  });
+}
+
 export function rankItems(items, p, { comparables = items, source = "supplied_listings" } = {}) {
   const seen = new Set();
   const pool = items.filter((item) => eligible(item, p) && isNewListing(seen, item));
@@ -404,13 +445,16 @@ export function rankItems(items, p, { comparables = items, source = "supplied_li
         );
       if (item.sellerReviews >= 20 && item.sellerStars >= 4.8)
         reasons.push("Strong seller feedback");
-      const matches = keywords.filter((word) => listingText.includes(word)).length;
+      const scopedStyle = p.styleByKind?.[item.kind];
+      const styleEvidence = listingStyleEvidence(item, scopedStyle?.prefer ?? keywords);
+      if (styleEvidence.length)
+        reasons.push(`Listing mentions ${styleEvidence.map((entry) => entry.excerpt).join(", ")}`);
       const discountCredit = deal
         ? pence(Math.max(0, Math.min(8, deal.belowMedian / 4, deal.medianWithFees * 0.1)))
         : 0;
       const adjustment = (wearAllowance[conditionTier(item.condition)] ?? 100) -
-        Math.min(400, matches * 200) - (p.logos && logo ? 200 : 0) - discountCredit;
-      return { ...item, fit, reasons, benchmark: deal?.medianItemPrice ?? null, deal, adjustment };
+        Math.min(400, styleEvidence.length * 200) - (p.logos && logo ? 200 : 0) - discountCredit;
+      return { ...item, fit, reasons, benchmark: deal?.medianItemPrice ?? null, deal, styleEvidence, adjustment };
     })
     .sort((a, b) => Number(b.fit.status === "match") - Number(a.fit.status === "match") ||
       itemCost(a) + a.adjustment - itemCost(b) - b.adjustment ||
