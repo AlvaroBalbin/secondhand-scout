@@ -26,8 +26,12 @@ export async function replaceSkipped(last, feedback, id, { discover = discoverRe
       : undefined);
   if (!displaced && last.basket.filter((item) => item.kind === kind).length >= target.qty)
     throw new Error("All picks of that type in the basket are saved. Skip the one you want to replace.");
-  const seed = (displaced ? without(displaced) : last.basket).filter((item) => personal.allow(item));
-  const leaveOpen = { items: seed, cost: calculateCosts(seed, profile) };
+  const seed = (displaced ? without(displaced) : last.basket).filter((item) => saved.has(item.id) || personal.allow(item));
+  const missing = (items) => profile.wants.map((want) => ({ kind: want.kind,
+    qty: want.qty - items.filter((item) => item.kind === want.kind).length })).filter(({ qty }) => qty > 0);
+  const leaveOpen = { items: seed, cost: calculateCosts(seed, profile), missing: missing(seed) };
+  const bundleAt = last.bundleAt?.[kind];
+  const bundleOnly = Number.isInteger(bundleAt) && seed.filter((item) => item.kind === kind).length + 1 >= bundleAt;
   const searchProfile = { ...profile, wants: [{ kind, qty: 1 }], strictFit: true, clean: true,
     styleByKind: { ...profile.styleByKind } };
   const nonSlim = kind === "shirts" && skipped.reason === "fit" && skipped.signals.some(({ value }) => value === "slim fit");
@@ -35,24 +39,24 @@ export async function replaceSkipped(last, feedback, id, { discover = discoverRe
     searchProfile.styleByKind[kind] = { ...searchProfile.styleByKind[kind], search: "classic fit" };
   const matches = (item) => personal.allow(item) && (!nonSlim ||
     listingStyleEvidence(item, regularCuts).length > 0 && listingStyleEvidence(item, narrowCuts).length === 0);
-  const maxTotal = displaced ? Math.min(profile.budget, priorCost.total - 0.01) : profile.budget;
+  const maxTotal = displaced && (!bundleOnly || skipped.reason === "price")
+    ? Math.min(profile.budget, priorCost.total - 0.01) : profile.budget;
   const maxPrice = Math.round((maxTotal - leaveOpen.cost.total) * 100) / 100;
   if (maxPrice <= 0) throw new Error("There is no budget left for a replacement.");
   const sellerIds = seed.map((item) => item.sellerId).filter(Boolean).map(String);
   const exclude = new Set([...last.basket.map((item) => item.id), skipped.id]);
-  const { items, meta } = await discover(searchProfile, { kind, sellerIds, exclude, maxPrice, matches });
+  const { items, meta } = await discover(searchProfile, { kind, sellerIds, exclude, maxPrice, matches, bundleOnly });
   const options = items.filter((item) => !exclude.has(item.id) && eligible(item, searchProfile) && matches(item))
     .map((item) => ({ item, cost: calculateCosts([...seed, item], profile),
       fitEvidence: nonSlim ? listingStyleEvidence(item, regularCuts) : [],
       sameSeller: Boolean(item.sellerId && sellerIds.includes(String(item.sellerId))) }))
-    .filter(({ cost }) => cost.total <= maxTotal)
+    .filter(({ cost, sameSeller }) => cost.total <= maxTotal && (!bundleOnly || sameSeller))
     .sort((a, b) => a.cost.total - b.cost.total || Number(b.sameSeller) - Number(a.sameSeller));
   const best = options[0];
-  const basket = best ? { items: [...seed, best.item], cost: best.cost, missing: [] } : null;
-  if (basket) basket.missing = profile.wants.map((want) => ({ kind: want.kind,
-    qty: want.qty - basket.items.filter((item) => item.kind === want.kind).length })).filter(({ qty }) => qty > 0);
+  const filled = best ? [...seed, best.item] : null;
+  const basket = filled ? { items: filled, cost: best.cost, missing: missing(filled) } : null;
   return { profile, basket, leaveOpen, previous: { item: displaced ?? null, cost: priorCost },
-    replacement: best ?? null, options: options.slice(0, 5), meta: {
+    replacement: best ?? null, options: options.slice(0, 5), bundleOnly, meta: {
       ...meta, mode: "replacement", limits: "Replacement listings were rechecked. Other picks use prices and availability from the previous shortlist.",
     } };
 }

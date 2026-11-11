@@ -534,7 +534,7 @@ export async function importListings(
 }
 
 export async function discoverReplacements(profile, {
-  kind, sellerIds, exclude, maxPrice, matches, client = new PublicVintedTransport(),
+  kind, sellerIds, exclude, maxPrice, matches, bundleOnly = false, client = new PublicVintedTransport(),
 }) {
   const checked = new Set(exclude);
   const items = [], warnings = [];
@@ -594,6 +594,7 @@ export async function discoverReplacements(profile, {
     }
   }
 
+  if (bundleOnly) return { items, meta };
   const collar = profile.fitByKind[kind].collarCm;
   const phrase = profile.styleByKind?.[kind]?.search;
   const garment = kind === "trousers" || kind === "shoes" ? kind : kind.slice(0, -1);

@@ -40,11 +40,15 @@ Add --json for machine-readable results. Use a profile file for saved briefs.`);
 }
 
 function report(result, interactive = false) {
-  const { basket, meta, profile } = result;
+  const { meta, profile } = result;
+  const basket = result.preview ?? result.basket;
+  if (result.preview)
+    console.log(`Similar listings. Your basket stays at ${money(result.basket.cost.total)} estimated delivered.`);
   if (result.leaveOpen) {
     console.log(`Leave the slot open: ${money(result.leaveOpen.cost.total)} estimated delivered.`);
     if (!basket) {
-      console.log("No cheaper replacement matched the brief.");
+      console.log(result.bundleOnly ? "No verified replacement from a seller already in your basket." :
+        "No cheaper replacement matched the brief.");
       for (const warning of meta.warnings ?? []) console.log(warning);
       return;
     }
@@ -71,7 +75,8 @@ function report(result, interactive = false) {
     );
     for (const id of group.ids) {
       const item = basket.items.find((entry) => entry.id === id);
-      const index = interactive ? `${basket.items.indexOf(item) + 1}. ` : "";
+      const pick = result.picks?.find((entry) => entry.id === id);
+      const index = interactive && pick ? `${pick.number}. ` : "";
       console.log(
         `  ${index}${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})`,
       );

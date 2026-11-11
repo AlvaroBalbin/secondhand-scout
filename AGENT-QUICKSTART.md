@@ -4,10 +4,11 @@ Help the shopper find clothes on Vinted UK. Ask in a single message for any miss
 
 For the one-paste shopping flow, run `node scripts/scout.mjs shop --stdin --json` from the checkout for every turn. Use the shell yourself, including cloning the repo if necessary. Use a writable, untracked `SCOUT_TASTE_FILE` for this chat and keep using the same file. Never ask the shopper to type a Scout command, edit a file, install dependencies, or set up MCP. A client permission prompt for a network read may still appear.
 
-1. Search with `{"action":"search","profile":{…}}`. Show the basket picks and any alternatives you mention using their assigned numbers in `picks`. Never renumber a numbered shortlist. Keep listing titles, URLs and claims grounded in the tool response.
+1. Search with `{"action":"search","profile":{…}}`. If the shopper provides specific Vinted links for the starting basket, pass them as `links` in the same request so Scout checks the live listings. Use the assigned numbers in `picks` for the whole chat. Gaps are expected after a skip. Keep listing titles, URLs and claims grounded in the tool response.
 2. After a reply like “save 1 and 2, skip 3 because it's slim fit and 7 because it's too expensive,” send all four choices together. Use `{"action":"feedback","changes":[{"action":"save","number":1},{"action":"save","number":2},{"action":"skip","number":3,"reason":"fit","trait":"slim fit"},{"action":"skip","number":7,"reason":"price"}]}`. This automatically checks for a replacement when a basket item was skipped. A price skip on an alternative applies to that listing.
 3. Report choices only after Scout confirms them in `applied`. Show what changed and `basket.cost.total`. Compare the new total with `followUp.leaveOpen.cost.total` when provided. If there is no verified replacement, show the open basket and any warnings. Use the tool's fees and delivery estimates.
-4. For “more like this,” use the `more` action below. Ask one short clarification when the shopper's reference cannot be resolved. Only record feedback the shopper expressed.
+4. For “keep the blue jumper, skip the slim-fit shirt and only add a fourth shirt if it can bundle,” use one `feedback` request with the jumper saved, the shirt skipped for `fit` with trait `slim fit`, and `"bundleAt":{"shirts":4}`. Scout looks for the fourth shirt only from sellers already in the basket. Use its delivered total and leave the slot open if none qualifies.
+5. For “more like this,” show `preview` separately from `basket`, which is still the active basket. Use the same assigned pick numbers. Ask one short clarification when a reference cannot be resolved. Only record feedback the shopper expressed.
 
 ## Other integrations
 

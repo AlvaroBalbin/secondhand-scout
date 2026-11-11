@@ -34,6 +34,8 @@ Agents use the same command with `--stdin --json`. See [shopping actions for age
 
 After a skip, use `replace 2` to look for a cheaper alternative to that basket slot. Scout checks sellers already in the basket before searching the wider catalogue. For a slim-fit shirt skip, it looks for listings that state a different cut. It shows the full basket and the price of leaving the slot open, using one estimated delivery charge per seller.
 
+Pick numbers stay with their listings throughout the chat. Similar-item searches leave the current basket intact. In chat, you can make a slot conditional by saying “only add a fourth shirt if it can bundle.” Scout checks the sellers already in your basket for that slot and leaves it open if no eligible shirt qualifies.
+
 ## Use with Codex or Claude Code
 
 Connect Scout permanently if you want it available across projects.

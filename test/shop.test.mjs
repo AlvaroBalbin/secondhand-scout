@@ -76,14 +76,17 @@ test("more like this can change colour while retaining exact fit, model, conditi
   const first = shop({ profile, listings });
   assert.deepEqual(ids(first), ["anchor"]);
   const next = shop({ action: "more", id: "anchor", style: { require: ["navy"] }, listings });
-  assert.deepEqual(ids(next), ["cheaper"]);
+  assert.deepEqual(ids(next), ["anchor"]);
+  assert.deepEqual(next.preview.items.map(({ id }) => id), ["cheaper"]);
+  assert.deepEqual(next.picks, [{ number: 1, id: "anchor" }, { number: 2, id: "cheaper" }]);
   assert.deepEqual(next.profile.fitByKind.jackets.pitToPitCm, [56, 58]);
   assert.deepEqual(next.profile.styleByKind.jackets.require, ["beaufort", "waxed", "corduroy collar", "navy"]);
   assert.equal(next.profile.budget, profile.budget);
-  assert.equal(first.basket.cost.total - next.basket.cost.total, 15.75);
+  assert.equal(first.basket.cost.total - next.preview.cost.total, 15.75);
   const near = shop({ action: "more", id: "anchor", style: { require: ["navy"] },
     listings: listings.filter((item) => item.id !== "cheaper") });
-  assert.deepEqual(ids(near), []);
+  assert.deepEqual(ids(near), ["anchor"]);
+  assert.deepEqual(near.preview.items, []);
   assert.ok(near.nearMatches.some(({ id, questions }) =>
     id === "no-size" && questions.some((question) => question.includes("armpit to armpit"))));
   assert.ok(!near.nearMatches.some(({ id }) => ["wrong-model", "repair", "not-waxed"].includes(id)));
@@ -138,4 +141,41 @@ test("one agent feedback call saves choices and automatically replaces the skipp
   assert.equal(after.basket.cost.total, 39.7);
   assert.equal(after.taste.saves, 2);
   assert.equal(after.taste.skips, 2);
+});
+
+test("a fourth shirt requires a retained seller and keeps pick numbers stable", async (t) => {
+  const shop = await shopper(t);
+  const shirt = (id, title, price, sellerId) => row(id, title, price,
+    { kind: "shirts", size: "16.5 in | 41 cm", fee: 1, sellerId });
+  const profile = { wants: { shirts: 4, jumpers: 1 }, budget: 100,
+    fitByKind: { shirts: { collarCm: 41 }, jumpers: { sizes: ["M", "L"] } } };
+  const blue = row("blue", "Blue V-neck jumper", 10);
+  const first = shop({ profile, listings: [blue,
+    shirt("one", "White Oxford shirt", 8, "retained"),
+    shirt("two", "Green Oxford shirt", 9, "two"),
+    shirt("three", "Striped Oxford shirt", 11, "three"),
+    shirt("slim", "Hackett slim-fit shirt", 5, "discarded"),
+  ] });
+  const number = (id) => first.picks.find((pick) => pick.id === id).number;
+  const after = shop({ action: "feedback", bundleAt: { shirts: 4 }, changes: [
+    { action: "save", number: number("blue") },
+    { action: "skip", number: number("slim"), reason: "fit", trait: "slim fit" },
+  ], replacementListings: [
+    shirt("elsewhere", "Hackett regular fit shirt", 2, "different"),
+    shirt("bundle", "Hackett classic fit shirt", 12, "retained"),
+    shirt("wrong-seller", "Hackett classic fit shirt", 1, "discarded"),
+  ] });
+  assert.equal(after.followUp.bundleOnly, true);
+  assert.equal(after.followUp.replacement.item.id, "bundle");
+  assert.equal(after.followUp.replacement.sameSeller, true);
+  assert.equal(after.basket.cost.parcels, after.followUp.leaveOpen.cost.parcels);
+  assert.equal(after.basket.cost.total - after.followUp.leaveOpen.cost.total, 13);
+  assert.deepEqual(after.picks.find(({ id }) => id === "blue"), { number: number("blue"), id: "blue" });
+  assert.deepEqual(after.picks.find(({ id }) => id === "bundle"), { number: 6, id: "bundle" });
+  const open = shop({ action: "feedback", changes: [
+    { action: "skip", number: 6, reason: "fit" },
+  ], replacementListings: [shirt("elsewhere", "Hackett regular fit shirt", 2, "different")] });
+  assert.deepEqual(open.basket.missing, [{ kind: "shirts", qty: 1 }]);
+  assert.equal(open.basket.cost.total, after.followUp.leaveOpen.cost.total);
+  assert.equal(open.followUp.replacement, null);
 });

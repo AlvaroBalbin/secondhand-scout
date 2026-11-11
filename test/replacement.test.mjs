@@ -79,4 +79,11 @@ test("basket seller wardrobes are requested before wider catalogue and it search
   assert.match(events[1], /45/);
   assert.deepEqual(events.slice(2), ["Hackett shirt 16.5 classic fit", "Hackett shirt 16.5"]);
   assert.equal(result.meta.wardrobesChecked, 2);
+  events.length = 0;
+  const bundled = await discoverReplacements(parsed, {
+    kind: "shirts", sellerIds: ["12", "45"], exclude: new Set(), maxPrice: 25, matches: () => true, client,
+    bundleOnly: true,
+  });
+  assert.equal(events.length, 2);
+  assert.equal(bundled.meta.catalogueQueries, 0);
 });
