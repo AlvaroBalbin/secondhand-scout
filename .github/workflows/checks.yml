@@ -19,3 +19,4 @@ jobs:
       - run: npm test
       - run: npm run scout -- demo
       - run: npm run scout -- rank examples/profile.json examples/listings.json
+      - run: node scripts/benchmark.mjs replay examples/benchmark.json

@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { KINDS } from "../src/engine.js";
+import { KINDS, validateProfile } from "../src/engine.js";
 
 const aliases = new Map(Object.entries(KINDS).flatMap(([kind, label]) => [
   [kind, kind], [label, kind],
@@ -32,6 +32,31 @@ function list(answer, limit, length) {
   const values = answer.split(",").map((value) => value.trim()).filter(Boolean);
   if (values.length <= limit && values.every((value) => value.length <= length))
     return values;
+}
+
+function fitAnswer(answer, wants, collar) {
+  if (!answer.includes("=")) {
+    const sizes = list(answer, 4, 12);
+    if (sizes?.length) return { sizes: sizes.join(", ") };
+    return;
+  }
+  const fitByKind = {};
+  for (const part of answer.split("|")) {
+    const [name, values, extra] = part.split("=");
+    const kind = aliases.get(name.trim().toLowerCase());
+    if (!kind || !wants[kind] || !values?.trim() || extra !== undefined || fitByKind[kind]) return;
+    const waist = kind === "trousers" && values.trim().match(/^w(\d{2})(?:\s*l(\d{2}))?$/i);
+    const sizes = list(values, 4, 12);
+    if (!sizes?.length) return;
+    fitByKind[kind] = waist ? { waistIn: Number(waist[1]), ...(waist[2] ? { inseamIn: Number(waist[2]) } : {}) } :
+      { sizes: sizes.join(", ") };
+  }
+  try {
+    validateProfile({ wants, collar, fitByKind, budget: 50 });
+    return { fitByKind };
+  } catch {
+    return;
+  }
 }
 
 export async function guidedProfile(input = process.stdin, output = process.stderr) {
@@ -70,14 +95,10 @@ export async function guidedProfile(input = process.stdin, output = process.stde
       "Enter a collar size in cm between 30 and 60, or press Enter to skip.",
     ) : null;
     const collarOnly = collar !== null && Object.keys(wants).length === 1;
-    const sizes = collarOnly ? "" : await ask(
-      collar === null ? "What sizes fit you? (e.g. M, L) " :
-        "What sizes fit you for your other items? (e.g. M, L) ",
-      (answer) => {
-        const sizes = list(answer, 4, 12);
-        if (sizes?.length) return sizes.join(", ");
-      },
-      "Enter up to four sizes separated by commas.",
+    const fit = collarOnly ? {} : await ask(
+      "What sizes fit you? (e.g. M, L or jumpers=L | trousers=W34) ",
+      (answer) => fitAnswer(answer, wants, collar),
+      "Enter up to four shared sizes or sizes for each item type. A shirt collar can stand on its own.",
     );
     const budget = await ask(
       "Total budget in GBP, including fees and delivery? (e.g. 150) ",
@@ -102,7 +123,7 @@ export async function guidedProfile(input = process.stdin, output = process.stde
       (answer) => list(answer, 3, 45)?.join(", "),
       "Enter up to three brands separated by commas.",
     );
-    return { wants, sizes, budget, collar, department, brands };
+    return { wants, ...fit, budget, collar, department, brands };
   } finally {
     reader.close();
   }

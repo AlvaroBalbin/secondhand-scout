@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "source": "Fictional example feed",
+  "mode": "snapshot",
+  "capturedAt": "2026-01-01T12:00:00Z",
+  "cursor": "example-cursor",
+  "listings": [
+    {
+      "id": "example-listing",
+      "sellerId": "example-seller",
+      "kind": "jumpers",
+      "title": "Merino jumper",
+      "size": "L",
+      "condition": "Very good",
+      "price": 12,
+      "currency": "GBP",
+      "available": true,
+      "measurements": { "pitToPitCm": 55 },
+      "url": "https://www.vinted.co.uk/items/10000000000-example"
+    }
+  ]
+}

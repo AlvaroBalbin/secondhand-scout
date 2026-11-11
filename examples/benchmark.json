@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "source": "synthetic",
+  "name": "One wardrobe can cover two garment types",
+  "profile": {
+    "wants": { "shirts": 1, "jumpers": 1 },
+    "fitByKind": { "shirts": { "collarCm": 41 }, "jumpers": { "sizes": ["L"] } },
+    "budget": 40,
+    "delivery": 5
+  },
+  "catalogue": [
+    { "id": "shirt", "sellerId": "one", "kind": "shirts", "title": "Oxford shirt", "size": "41", "condition": "Very good", "price": 8, "fee": 1 },
+    { "id": "other-jumper", "sellerId": "two", "kind": "jumpers", "title": "Merino jumper", "size": "L", "condition": "Very good", "price": 10, "fee": 1 }
+  ],
+  "wardrobe": [
+    { "id": "wardrobe-jumper", "sellerId": "one", "kind": "jumpers", "title": "Merino jumper", "size": "L", "condition": "Very good", "price": 11, "fee": 1 }
+  ],
+  "suitableIds": ["shirt", "other-jumper", "wardrobe-jumper"]
+}

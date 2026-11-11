@@ -9,10 +9,10 @@ Help the shopper find clothes on Vinted UK. Ask in a single message for any miss
 The JSON you pipe to stdin has this shape. Use the shopper’s details in place of the example.
 
 ```json
-{"profile":{"wants":{"shirts":3,"jumpers":2,"gilets":1},"collar":41,"sizes":"L","budget":150,"department":"men","brands":"Ralph Lauren, Hackett"}}
+{"profile":{"wants":{"shirts":3,"jumpers":2,"trousers":1},"fitByKind":{"shirts":{"collarCm":41},"jumpers":{"sizes":["L"]},"trousers":{"waistIn":34}},"budget":150,"department":"men","brands":"Ralph Lauren, Hackett"}}
 ```
 
-Use `shirts`, `jumpers`, `gilets`, `jackets`, `trousers` or `shoes` in `wants`. A brief can have up to three clothing types, eight items per type and twelve items in total. For a shirts-only brief, a collar measurement can take the place of `sizes`. Use comma-separated strings for CLI sizes and brands, and arrays for MCP. If the shopper leaves department open, use `"any"`.
+Use `shirts`, `jumpers`, `gilets`, `jackets`, `trousers` or `shoes` in `wants`. A brief can have up to three clothing types, eight items per type and twelve items in total. Use `fitByKind` for separate sizes and measurements. `collarCm` and `pitToPitCm` are in centimetres. `waistIn` and `inseamIn` are in inches. The three garment measurements accept a number or a two-number range. Use explicit units and leave missing evidence for the shopper to check. For shared sizes and brands, the CLI accepts comma-separated strings and MCP accepts arrays. If the shopper leaves department open, use `"any"`.
 
 ## If the live search is blocked
 

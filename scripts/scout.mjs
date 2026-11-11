@@ -56,6 +56,8 @@ function report(result) {
         const { belowMedian, comparableSellers } = item.deal;
         console.log(`    ${money(belowMedian)} below the median asking price with fees across ${comparableSellers} comparable sellers.`);
       }
+      if (item.priceDrop)
+        console.log(`    Asking price fell by ${money(item.priceDrop.amount)} since the previous price observation.`);
       if (item.url) console.log(`    ${item.url}`);
     }
   }

@@ -5,7 +5,7 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 ## Paste this into an agent chat
 
 ```text
-Find me live Vinted UK deals with Secondhand Scout. Ask me in one message for items and quantities, sizes and budget including delivery. Then use your terminal to clone https://github.com/AlvaroBalbin/secondhand-scout.git in this chat’s workspace and run `node scripts/scout.mjs search --stdin --json` from the clone. Pipe in my answers as JSON like `{"profile":{"wants":{"jumpers":1},"sizes":"L","budget":50}}`. Use only the public repo and Vinted. If terminal approval is needed, request it for the clone or search command. Show the listing links and estimated delivered total. If the command fails, say why and give prefilled Vinted search links.
+Find me live Vinted UK deals with Secondhand Scout. Ask me in one message for items, quantities, fit per item type and budget including delivery. Clone https://github.com/AlvaroBalbin/secondhand-scout.git in this chat’s workspace and run `node scripts/scout.mjs search --stdin --json` from the clone. Pipe in my answers like `{"profile":{"wants":{"jumpers":1},"fitByKind":{"jumpers":{"sizes":["L"]}},"budget":50}}`. Use the public repo and Vinted. If needed, request approval for the clone or search. Show links and estimated delivered total. If blocked, say why and give prefilled Vinted searches.
 ```
 
 Use a Codex or Claude Code chat with terminal access and Git and Node.js 22 or newer available. The agent handles the clone and search without an npm install or MCP setup. Approve the clone or search if your client asks. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
@@ -98,6 +98,49 @@ Scout compares the listings it sees. It checks sizing and defects described in l
 Scout looks for the basket that fills the most of your brief within your delivered budget. It considers all eligible candidates it checked, including items beyond the displayed shortlist, and preserves affordable paths while weighing fit, condition and style. It charges one estimated postage amount per seller and shows the estimated postage saved by bundling.
 
 When there is enough evidence, Scout compares an item's price with fees against a median from at least four other sellers. The comparisons use the same brand, garment type, listed condition and any style or material signalled in the title. Each seller contributes one observation. The reference uses asking prices from the observed catalogue or supplied listings. A low price without enough comparable sellers still counts toward a cheaper basket.
+
+For live search, Scout gives thin results another look through cheap and recent catalogue entries. It also checks up to two promising sellers' wardrobes and rechecks candidate listings before adding them to a basket. The search has a fixed request budget.
+
+## Fit by garment
+
+The agent, CLI and API accept separate requirements in the same brief. Shared `sizes` and shirt `collar` still work. With the guided CLI you can enter `jumpers=L | trousers=W34L32` in the size prompt and give the shirt collar separately.
+
+```json
+{
+  "wants": { "shirts": 1, "jumpers": 1, "trousers": 1 },
+  "fitByKind": {
+    "shirts": { "collarCm": 41 },
+    "jumpers": { "sizes": ["L"], "pitToPitCm": [53, 57] },
+    "trousers": { "waistIn": 34, "inseamIn": [30, 32] }
+  },
+  "budget": 100
+}
+```
+
+Ask for measurements when they're important to fit. Scout recognises declared measurements with units, structured measurements from a feed, and explicit W/L labels on trousers. A missing measurement stays unverified. Default strict fit requires evidence for each requested fit field.
+
+## Replay a search
+
+```sh
+node scripts/benchmark.mjs replay examples/benchmark.json
+node scripts/benchmark.mjs capture examples/profile.json work/search-snapshot.json
+node scripts/benchmark.mjs replay work/search-snapshot.json
+```
+
+Create `work/` first for a capture. The replay compares catalogue-only and wardrobe-expanded baskets over the same observed listings and price references. It reports filled requests, fit evidence, parcel count, cost at equal coverage and ranking time. Add `suitableIds` to a local snapshot to compare picks with your own suitability labels. This measures the effect of wardrobe additions in that capture. Discovery time covers the recorded search. Keep real snapshots local.
+
+## Connect an authorised feed
+
+Scout can read from a local index synced from an authorised Vinted UK feed or export. The input is a versioned JSON snapshot followed by timestamped deltas. Stable listing IDs and seller IDs allow price history, availability updates and bundle checks.
+
+```sh
+node scripts/feed.mjs sync work/feed-state.json /path/to/authorised-snapshot.json
+node scripts/feed.mjs sync work/feed-state.json /path/to/authorised-delta.json
+```
+
+Set `SCOUT_FEED_FILE` to the state file when running the CLI, API or MCP server. Scout uses the feed for searches and requires it to be recent. The default freshness limit is 60 minutes, configurable with `SCOUT_FEED_MAX_AGE_MINUTES`. To sync over HTTPS, set `SCOUT_FEED_URL` and optionally `SCOUT_FEED_TOKEN`, then omit the batch filename. The sync passes the last cursor as `cursor` and writes the new state only after validation. See the [feed contract](examples/feed-snapshot.json).
+
+Run `node scripts/feed.mjs watch work/feed-state.json` to poll the authorised HTTPS feed at its permitted interval. Set `SCOUT_FEED_POLL_SECONDS` to control the interval. Updates use `mode: "delta"` and may supply `removedIds`. Keep timestamps increasing and treat removals as unavailable. Price changes are tracked per listing, and fresh listings and price drops get room in the shortlist.
 
 Live search is experimental. It uses the catalogue parser from [googlarz/vinted-mcp-cli](https://github.com/googlarz/vinted-mcp-cli) and stops if Vinted denies access. Use the live modes only where permitted by the [Vinted UK terms](https://www.vinted.co.uk/terms-and-conditions). The local rank command works with your own listing data without marketplace access.
 

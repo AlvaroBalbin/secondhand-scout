@@ -3,10 +3,14 @@ export function demoItems(profile) {
   const brands = profile.brands.length
     ? profile.brands
     : ["Ralph Lauren", "Hackett"];
-  const collar = profile.collar || 41;
   const items = [];
   let id = 1;
   for (const { kind, qty } of profile.wants) {
+    const fit = profile.fitByKind[kind];
+    const collar = fit.collarCm ?? 41;
+    const measurements = Object.fromEntries(Object.entries(fit)
+      .filter(([key]) => ["pitToPitCm", "waistIn", "inseamIn"].includes(key))
+      .map(([key, [min, max]]) => [key, (min + max) / 2]));
     const noun = {
       shirts: "Oxford shirt",
       jumpers: "merino V-neck jumper",
@@ -36,9 +40,9 @@ export function demoItems(profile) {
         price,
         currency: "GBP",
         size:
-          kind === "shirts" && profile.collar !== null
-            ? `Collar ${collar} cm`
-            : profile.sizes[n % profile.sizes.length],
+          fit.sizes.length ? fit.sizes[n % fit.sizes.length] :
+            fit.collarCm !== null ? `Collar ${collar} cm` : "",
+        measurements,
         description: `Example adult ${noun}. ${kind === "shirts" ? `Collar ${collar} cm. ` : ""}Embroidered logo. No holes or stains.`,
         sellerId: `sample-${seller}`,
         sellerName: `Example seller ${seller}`,

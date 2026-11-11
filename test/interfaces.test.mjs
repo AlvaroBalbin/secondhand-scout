@@ -38,6 +38,21 @@ test("guided CLI cancels when the answers end early", () => {
   assert.match(result.stderr, /Shopping brief cancelled/);
 });
 
+test("guided CLI accepts one collar, a jumper size and a trouser waist in one brief", () => {
+  const result = spawnSync(process.execPath, [script("scout"), "--demo", "--json"], {
+    input: "1 shirt, 1 jumper, 1 trousers\n41\njumpers=L | trousers=W34L32\n125\nmen\n\n",
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const { basket, profile } = JSON.parse(result.stdout);
+  assert.equal(profile.fitByKind.shirts.collarCm, 41);
+  assert.deepEqual(profile.fitByKind.jumpers.sizes, ["L"]);
+  assert.deepEqual(profile.fitByKind.trousers.waistIn, [34, 34]);
+  assert.deepEqual(profile.fitByKind.trousers.inseamIn, [32, 32]);
+  assert.equal(basket.items.length, 3);
+});
+
 test("an agent can rank a brief and supplied listings using stdin only", () => {
   const result = spawnSync(process.execPath, [script("scout"), "rank", "--stdin", "--json"], {
     input: JSON.stringify({
@@ -76,6 +91,15 @@ test("MCP client discovers tools and ranks real-shaped input without marketplace
   assert.equal(demo.structuredContent.basket.items.length, 2);
   assert.deepEqual(demo.structuredContent.profile.sizes, []);
   assert.deepEqual(JSON.parse(demo.content[0].text), demo.structuredContent);
+  const mixed = await client.callTool({
+    name: "demo_deals",
+    arguments: { profile: {
+      wants: { shirts: 1, trousers: 1 }, budget: 60,
+      fitByKind: { shirts: { collarCm: 41 }, trousers: { waistIn: 34 } },
+    } },
+  });
+  assert.equal(mixed.isError ?? false, false);
+  assert.equal(mixed.structuredContent.basket.items.length, 2);
 
   const listings = [
     { kind: "shirts", title: "White Oxford shirt", price: 8, size: "41", sellerId: "seller" },

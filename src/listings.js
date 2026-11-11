@@ -45,6 +45,9 @@ export function normalizeListings(listings) {
       size: field(item.size),
       brand: field(item.brand),
       condition: field(item.condition),
+      measurements: Object.fromEntries(["pitToPitCm", "waistIn", "inseamIn"]
+        .filter((key) => Number.isFinite(item.measurements?.[key]))
+        .map((key) => [key, item.measurements[key]])),
       description: field(item.description, 3000),
       sellerId: field(item.sellerId) || null,
       sellerName: field(item.sellerName),

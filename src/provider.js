@@ -1,6 +1,7 @@
 // Reuse the maintained parser and operations from the repo tested in the shopping chat.
-import { searchItems, getSeller } from "../vendor/vinted-client/endpoints.js";
-import { conditionTier, eligible, InputError, rankItems } from "./engine.js";
+import { searchItems, getSeller, getSellerItems } from "../vendor/vinted-client/endpoints.js";
+import { SORT_VALUE } from "../vendor/vinted-client/types.js";
+import { conditionTier, eligible, InputError, planBasket, rankItems } from "./engine.js";
 
 export class ProviderError extends Error {
   constructor(message) {
@@ -234,49 +235,67 @@ export async function readListing(client, reference, kind) {
 
 export async function discover(
   profile,
-  { client = new PublicVintedTransport(), onProgress = () => {} } = {},
+  { client = new PublicVintedTransport(), onProgress = () => {}, expandWardrobes = true,
+    extraSearches = true, onSnapshot } = {},
 ) {
   const items = [],
     warnings = [],
     seen = new Set();
   const brands = profile.brands.length ? profile.brands : [""];
+  const searches = [];
   for (const want of profile.wants) {
     for (const brand of brands) {
       const kind =
         want.kind === "trousers" || want.kind === "shoes"
           ? want.kind
           : want.kind.replace(/s$/, "");
+      const collarCm = profile.fitByKind[want.kind].collarCm;
       const collar =
-        want.kind === "shirts" && profile.collar !== null
-          ? String(Math.round((profile.collar / 2.54) * 2) / 2)
+        collarCm !== null
+          ? String(Math.round((collarCm / 2.54) * 2) / 2)
           : "";
       const query = [brand, kind, collar].filter(Boolean).join(" ");
-      onProgress(query);
-      try {
-        const r = await searchItems(client, {
-          query,
-          country: "uk",
-          categoryId:
-            profile.department === "men"
-              ? 2050
-              : profile.department === "women"
-                ? 1904
-                : undefined,
-          priceMax: profile.budget - profile.delivery,
-          condition: ["good", "very_good", "new_without_tags", "new_with_tags"],
-          perPage: 96,
-          sortBy: "relevance",
-        });
-        for (const i of r.items) {
-          const key = `${want.kind}:${i.id}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          items.push(clean(i, want.kind));
-        }
-      } catch (e) {
-        if (client.blocked || !items.length) throw e;
-        warnings.push(`${query}: ${e.message}`);
+      searches.push({ want, query, fits: 0 });
+    }
+  }
+  async function search(entry, order) {
+    const { want, query } = entry;
+    onProgress(query);
+    try {
+      const result = await searchItems(client, {
+        query,
+        country: "uk",
+        categoryId:
+          profile.department === "men"
+            ? 2050
+            : profile.department === "women"
+              ? 1904
+              : undefined,
+        priceMax: profile.budget - profile.delivery,
+        condition: ["good", "very_good", "new_without_tags", "new_with_tags"],
+        perPage: 96,
+        sortBy: order,
+      });
+      for (const item of result.items) {
+        const key = `${want.kind}:${item.id}`;
+        if (seen.has(key)) continue;
+        const listing = clean(item, want.kind);
+        seen.add(key);
+        items.push(listing);
+        if (eligible(listing, profile)) entry.fits++;
       }
+    } catch (error) {
+      if (client.blocked || !items.length) throw error;
+      warnings.push(`${query}: ${error.message}`);
+    }
+  }
+  for (const query of searches) await search(query, "relevance");
+  if (extraSearches) {
+    const gaps = [...searches].sort((a, b) => a.fits / a.want.qty - b.fits / b.want.qty);
+    const orders = [SORT_VALUE.price_low_to_high, SORT_VALUE.newest_first];
+    for (const [index, order] of orders.entries()) {
+      if ((client.calls ?? 0) >= 11) break;
+      await search(gaps[index % gaps.length], order);
     }
   }
   // Validate and enrich a bounded shortlist, prioritising size-compatible results.
@@ -304,33 +323,98 @@ export async function discover(
     return { want, candidates: [...new Set(ordered)], next: 0, checked: 0, qualified: 0 };
   });
   const refreshed = new Map();
-  while (refreshed.size < DETAIL_CHECK_LIMIT && (client.calls ?? 0) < REQUEST_LIMIT - 8) {
-    const [group] = groups
-      .filter((g) => g.next < g.candidates.length && g.qualified < g.want.qty + 2)
-      .sort((a, b) => Number(a.qualified >= a.want.qty) - Number(b.qualified >= b.want.qty) ||
-        a.checked - b.checked);
-    if (!group) break;
-    const item = group.candidates[group.next++];
-    if (refreshed.has(item.id)) continue;
-    group.checked++;
+  const wardrobeEligible = expandWardrobes && profile.wants.reduce((sum, want) => sum + want.qty, 0) > 1;
+  const catalogueLimit = wardrobeEligible ? DETAIL_CHECK_LIMIT - 4 : DETAIL_CHECK_LIMIT;
+  async function recheck(item, requiredSeller) {
     try {
       const detail = await readListing(client, item.url, item.kind);
-      const listing = {
-        ...item,
-        ...detail,
+      if (requiredSeller && detail.sellerId && detail.sellerId !== requiredSeller) return null;
+      return {
+        ...item, ...detail,
         size: detail.size || item.size,
         sellerId: detail.sellerId || item.sellerId,
         condition: conditionTier(item.condition) ? item.condition : detail.condition,
       };
-      refreshed.set(item.id, listing);
-      if (eligible(listing, profile)) group.qualified++;
     } catch (e) {
       if (client.blocked) throw e;
-      refreshed.set(item.id, null);
       warnings.push(`Could not recheck ${item.title}. It was left out.`);
+      return null;
     }
   }
-  const enriched = [...refreshed.values()].filter(Boolean);
+  function canCheckDetails(reserve = 0) {
+    return (client.calls ?? 0) < REQUEST_LIMIT - 8 - reserve;
+  }
+  async function checkCatalogue(limit, reserve = 0) {
+    while (refreshed.size < limit && canCheckDetails(reserve)) {
+      const [group] = groups
+        .filter((g) => g.next < g.candidates.length && g.qualified < g.want.qty + 2)
+        .sort((a, b) => Number(a.qualified >= a.want.qty) - Number(b.qualified >= b.want.qty) ||
+          a.checked - b.checked);
+      if (!group) break;
+      const item = group.candidates[group.next++];
+      if (refreshed.has(item.id)) continue;
+      group.checked++;
+      const listing = await recheck(item);
+      refreshed.set(item.id, listing);
+      if (listing && eligible(listing, profile)) group.qualified++;
+    }
+  }
+  await checkCatalogue(catalogueLimit, wardrobeEligible ? 3 : 0);
+  const wardrobeListings = [];
+  const wardrobeAttemptsByKind = new Map();
+  let wardrobesChecked = 0, wardrobeItemsSeen = 0, wardrobeDetailAttempts = 0;
+  if (wardrobeEligible) {
+    const seeds = rankItems([...refreshed.values()].filter(Boolean), profile);
+    const provisional = planBasket(seeds, profile);
+    const missingKinds = new Set(provisional.missing.map((want) => want.kind));
+    const basketSellers = [...new Set(provisional.items.map((item) => item.sellerId).filter(Boolean))];
+    const sellers = [...new Set(seeds.map((item) => item.sellerId).filter(Boolean))];
+    const wardrobePotential = (seller) => {
+      const counts = countsBySeller.get(seller) ?? new Map();
+      return profile.wants.reduce((score, want) =>
+        score + Math.min(want.qty, counts.get(want.kind) ?? 0) * (missingKinds.has(want.kind) ? 2 : 1), 0);
+    };
+    const first = basketSellers[0] ?? sellers[0];
+    const other = sellers.filter((seller) => seller !== first)
+      .sort((a, b) => wardrobePotential(b) - wardrobePotential(a))[0];
+    for (const seller of [first, other].filter(Boolean)) {
+      if (!canCheckDetails(1) || wardrobeDetailAttempts >= 4) break;
+      let inventory;
+      try {
+        wardrobesChecked++;
+        inventory = (await getSellerItems(client, Number(seller), "uk", 24)).items;
+        wardrobeItemsSeen += inventory.length;
+      } catch (e) {
+        if (client.blocked) throw e;
+        warnings.push("A seller wardrobe could not be checked.");
+        continue;
+      }
+      const candidates = inventory.flatMap((row) => {
+        if (refreshed.has(String(row.id)) || wardrobeListings.some((item) => item.id === String(row.id))) return [];
+        try {
+          parseListingUrl(row.url);
+        } catch {
+          return [];
+        }
+        for (const { kind } of profile.wants) {
+          const listing = clean(row, kind);
+          if (eligible(listing, relaxed)) return [listing];
+        }
+        return [];
+      });
+      const shortlist = rankItems(candidates, relaxed).sort((a, b) =>
+        Number(missingKinds.has(b.kind)) - Number(missingKinds.has(a.kind)));
+      for (const item of shortlist.slice(0, 2)) {
+        if (!canCheckDetails() || wardrobeDetailAttempts >= 4) break;
+        wardrobeDetailAttempts++;
+        wardrobeAttemptsByKind.set(item.kind, (wardrobeAttemptsByKind.get(item.kind) ?? 0) + 1);
+        const listing = await recheck(item, seller);
+        if (listing) wardrobeListings.push(listing);
+      }
+    }
+  }
+  await checkCatalogue(DETAIL_CHECK_LIMIT - wardrobeDetailAttempts);
+  const enriched = [...refreshed.values()].filter(Boolean).concat(wardrobeListings);
   const qualified = enriched.filter((item) => eligible(item, profile));
   const sellers = new Map();
   for (const item of qualified) {
@@ -366,18 +450,36 @@ export async function discover(
     });
   if (checked.length < qualified.length)
     warnings.push("Listings with unverified UK seller location were left out.");
+  const wardrobeIds = new Set(wardrobeListings.map((item) => item.id));
+  const comparisonRows = new Map(items.map((item) => [item.id, item]));
+  for (const [id, item] of refreshed) {
+    if (item) comparisonRows.set(id, item);
+    else comparisonRows.delete(id);
+  }
+  for (const item of wardrobeListings) comparisonRows.set(item.id, item);
+  const comparables = [...comparisonRows.values()];
+  if (onSnapshot) await onSnapshot({
+    capturedAt: new Date().toISOString(),
+    catalogue: checked.filter((item) => !wardrobeIds.has(item.id)),
+    wardrobe: checked.filter((item) => wardrobeIds.has(item.id)),
+    comparables,
+  });
   return {
     items: checked,
-    comparables: items.map((item) => refreshed.has(item.id) ? refreshed.get(item.id) : item).filter(Boolean),
+    comparables,
     meta: {
       mode: "live",
       source: "Vinted UK via googlarz/vinted-mcp-cli",
       searched: items.length,
       detailChecked: enriched.length,
+      wardrobesChecked,
+      wardrobeItemsSeen,
+      wardrobeDetailAttempts,
+      wardrobeMatches: checked.filter((item) => wardrobeIds.has(item.id)).length,
       coverage: groups.map((group) => ({
         kind: group.want.kind,
-        detailAttempts: group.checked,
-        eligibleAfterDetail: group.qualified,
+        detailAttempts: group.checked + (wardrobeAttemptsByKind.get(group.want.kind) ?? 0),
+        eligibleAfterDetail: qualified.filter((item) => item.kind === group.want.kind).length,
         eligibleAfterSellerCheck: checked.filter((item) => item.kind === group.want.kind).length,
       })),
       warnings,

@@ -2,6 +2,7 @@ import { validateProfile, makeResult, InputError } from "./engine.js";
 import { discover, importListings, ProviderError } from "./provider.js";
 import { demoItems } from "./demo.js";
 import { normalizeListings } from "./listings.js";
+import { readFeed, searchFeed } from "./feed.js";
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -55,6 +56,15 @@ export async function api(request) {
             "Availability, label photos and condition depend on the supplied information.",
         }),
       );
+    if (path === "/api/search" && process.env.SCOUT_FEED_FILE) {
+      try {
+        const state = await readFeed(process.env.SCOUT_FEED_FILE);
+        const found = searchFeed(state, { profile, maxAgeMinutes: Number(process.env.SCOUT_FEED_MAX_AGE_MINUTES || 60) });
+        return json(makeResult(found.items, profile, found.meta, found.comparables));
+      } catch {
+        return json({ error: "The configured listing feed is unavailable or stale. Refresh it before searching.", type: "provider_unavailable" }, 503);
+      }
+    }
     const key = JSON.stringify({ path, profile, links: body.links });
     const hit = cache.get(key);
     if (hit && Date.now() - hit.time < 300000)

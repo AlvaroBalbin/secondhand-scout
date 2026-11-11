@@ -5,11 +5,21 @@ import { KINDS } from "../src/engine.js";
 import { runScout } from "./request.mjs";
 
 const kind = z.enum(Object.keys(KINDS));
+const sizeList = z.array(z.string().trim().min(1).max(12)).min(1).max(4);
+const measurement = z.union([z.number(), z.tuple([z.number(), z.number()])]);
+const garmentFit = z.strictObject({
+  sizes: sizeList.optional(),
+  collarCm: z.number().optional(),
+  pitToPitCm: measurement.optional(),
+  waistIn: measurement.optional(),
+  inseamIn: measurement.optional(),
+});
 const profile = z.strictObject({
   wants: z.partialRecord(kind, z.number().int().min(1).max(8))
     .describe("Clothing types and quantities, up to three types and 12 items in total. Example: {shirts: 3, jumpers: 2}."),
-  sizes: z.array(z.string().trim().min(1).max(12)).min(1).max(4).optional()
-    .describe("Sizes that fit, e.g. [\"M\", \"L\"]. Required except for a shirts-only request with a collar size."),
+  sizes: sizeList.optional().describe("Shared fallback sizes, e.g. [\"M\", \"L\"]."),
+  fitByKind: z.partialRecord(kind, garmentFit).optional()
+    .describe("Specific fit for each garment type, e.g. shirts collarCm 41, jumpers sizes [L], trousers waistIn 34. Pit-to-pit is in cm; waist and inseam are in inches."),
   collar: z.number().min(30).max(60).optional().describe("Shirt collar measurement in centimetres."),
   budget: z.number().min(10).max(5000).describe("Total budget in GBP including estimated fees and delivery."),
   department: z.enum(["men", "women", "any"]).optional().describe("Defaults to any."),
@@ -30,6 +40,7 @@ const listing = z.object({
   size: z.string().optional(),
   brand: z.string().optional(),
   condition: z.string().optional(),
+  measurements: z.strictObject({ pitToPitCm: z.number().optional(), waistIn: z.number().optional(), inseamIn: z.number().optional() }).optional(),
   description: z.string().max(3000).optional(),
   sellerId: z.string().optional(),
   sellerName: z.string().optional(),

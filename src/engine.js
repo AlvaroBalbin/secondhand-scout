@@ -14,6 +14,45 @@ const norm = (s) =>
     .replace(/[’']/g, "")
     .trim();
 const unique = (a) => [...new Set(a)];
+const readSizes = (value) => unique(String(value ?? "").split(",").map((size) => size.trim().toUpperCase()).filter(Boolean));
+const validSizes = (sizes) => sizes.length <= 4 && sizes.every((size) => size.length <= 12);
+const measurementFields = {
+  pitToPitCm: { label: "Pit-to-pit", min: 20, max: 110, unit: "cm", phrase: "pit[ -]+to[ -]+pit|armpit[ -]+to[ -]+armpit|p2p" },
+  waistIn: { label: "Waist", min: 16, max: 80, unit: "in", phrase: "waist" },
+  inseamIn: { label: "Inside leg", min: 10, max: 60, unit: "in", phrase: "inseam|inside leg" },
+};
+
+function measurementRange(value, field) {
+  const range = Array.isArray(value) ? value : [value, value];
+  if (range.length !== 2 || range.some((n) => typeof n !== "number" || !Number.isFinite(n) || n < field.min || n > field.max) ||
+      range[0] > range[1]) throw new InputError(`Enter a valid ${field.label.toLowerCase()} size or range in ${field.unit}.`);
+  return range;
+}
+
+function garmentFits(input, wants, sizes, collar) {
+  const specified = input.fitByKind ?? {};
+  if (typeof specified !== "object" || Array.isArray(specified) ||
+      Object.keys(specified).some((kind) => !wants.some((want) => want.kind === kind)))
+    throw new InputError("Set fit only for clothing types in the shopping brief.");
+  return Object.fromEntries(wants.map(({ kind }) => {
+    const value = specified[kind] ?? {};
+    const allowed = ["sizes", ...(kind === "shirts" ? ["collarCm"] : []),
+      ...(kind === "trousers" ? ["waistIn", "inseamIn"] : kind === "shoes" ? [] : ["pitToPitCm"])];
+    if (typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !allowed.includes(key)))
+      throw new InputError(`Unsupported fit field for ${kind}.`);
+    const collarCm = value.collarCm ?? (kind === "shirts" ? collar : null);
+    if (collarCm !== null && (typeof collarCm !== "number" || !Number.isFinite(collarCm) || collarCm < 30 || collarCm > 60))
+      throw new InputError("Enter a shirt collar size from 30 to 60 cm.");
+    const measurements = Object.fromEntries(Object.entries(measurementFields)
+      .filter(([key]) => Object.hasOwn(value, key))
+      .map(([key, field]) => [key, measurementRange(value[key], field)]));
+    const localSizes = Object.hasOwn(value, "sizes") ? readSizes(value.sizes) :
+      collarCm !== null || Object.keys(measurements).length ? [] : sizes;
+    if (!validSizes(localSizes) || (!localSizes.length && collarCm === null && !Object.keys(measurements).length))
+      throw new InputError(`Enter up to four sizes or a measurement for ${kind}.`);
+    return [kind, { sizes: localSizes, collarCm, ...measurements }];
+  }));
+}
 
 export function validateProfile(input) {
   if (!input || typeof input !== "object" || Array.isArray(input))
@@ -55,15 +94,10 @@ export function validateProfile(input) {
     throw new InputError(
       "Enter a shirt collar size in centimetres, or leave it blank.",
     );
-  const sizes = unique(
-    String(input.sizes ?? "")
-      .split(",")
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean),
-  );
-  const collarOnly = collar !== null && wants.length === 1 && wants[0].kind === "shirts";
-  if ((!sizes.length && !collarOnly) || sizes.length > 4 || sizes.some((s) => s.length > 12))
+  const sizes = readSizes(input.sizes);
+  if (!validSizes(sizes) || (!sizes.length && collar === null && input.fitByKind == null))
     throw new InputError("Enter up to four clothing sizes, such as M, L.");
+  const fitByKind = garmentFits(input, wants, sizes, collar);
   const department = ["men", "women", "any"].includes(input.department)
     ? input.department
     : "men";
@@ -74,6 +108,7 @@ export function validateProfile(input) {
     brands,
     collar,
     sizes,
+    fitByKind,
     department,
     brief: String(input.brief ?? "").slice(0, 400),
     logos: !!input.logos,
@@ -124,6 +159,25 @@ export function collarFromText(text) {
   return n >= 30 && n <= 60 ? { min: n, max: n } : null;
 }
 
+function measured(item, key, field) {
+  const supplied = item.measurements?.[key];
+  if (Number.isFinite(supplied) && supplied >= field.min && supplied <= field.max) return supplied;
+  const pattern = new RegExp(`\\b(?:${field.phrase})\\s*(?:measures?\\s*)?[:=~-]?\\s*(\\d{1,3}(?:[.,]\\d+)?)\\s*(cm\\b|inches\\b|inch\\b|in\\b|["”])`, "i");
+  const match = norm(item.description).match(pattern);
+  if (match) {
+    const value = Number(match[1].replace(",", "."));
+    const isCm = match[2].toLowerCase() === "cm";
+    const result = field.unit === "cm" ? value * (isCm ? 1 : 2.54) : value / (isCm ? 2.54 : 1);
+    return result >= field.min && result <= field.max ? round(result) : null;
+  }
+  if (key === "pitToPitCm") return null;
+  const size = norm(item.size);
+  const combined = size.match(/\bw\s*(\d{2})\s*l\s*(\d{2})\b/);
+  const standalone = size.match(key === "waistIn" ? /\bw\s*(\d{2})\b/ : /\bl\s*(\d{2})\b/);
+  const value = Number(combined?.[key === "waistIn" ? 1 : 2] ?? standalone?.[1]);
+  return value >= field.min && value <= field.max ? value : null;
+}
+
 export function assessFit(item, p) {
   const text = norm(`${item.title} ${item.description || ""}`),
     size = String(item.size || "").toUpperCase();
@@ -140,7 +194,9 @@ export function assessFit(item, p) {
     return { status: "excluded", note: "Listed as womenswear." };
   if (p.department === "women" && /\bmens?\b/.test(text))
     return { status: "excluded", note: "Listed as menswear." };
-  if (item.kind === "shirts" && p.collar !== null) {
+  const spec = p.fitByKind?.[item.kind] ?? { sizes: p.sizes, collarCm: item.kind === "shirts" ? p.collar : null };
+  const checks = [];
+  if (spec.collarCm !== null) {
     const declared = norm(item.description).match(
       /\b(?:collar|neck)(?:\s+size)?\s*[:=]?\s*\d{2}(?:[.,]5|½)?(?:\s*[-–/]\s*\d{2})?\s*(?:inches|inch|in\b|cm|["”])?/,
     )?.[0];
@@ -149,30 +205,44 @@ export function assessFit(item, p) {
       collarFromText(item.title) ||
       collarFromText(size);
     if (!evidence)
-      return {
+      checks.push({
         status: "unknown",
         note: "Collar size missing. Check the label photo.",
-      };
-    const ok = p.collar >= evidence.min - 0.6 && p.collar <= evidence.max + 0.6;
-    return {
-      status: ok ? "match" : "excluded",
-      note: ok
-        ? "Collar matches the listing text. Label photo and body fit still need checking."
-        : `Collar appears to be ${round(evidence.max)} cm, outside your size.`,
-    };
+      });
+    else {
+      const ok = spec.collarCm >= evidence.min - 0.6 && spec.collarCm <= evidence.max + 0.6;
+      checks.push({
+        status: ok ? "match" : "excluded",
+        note: ok ? "Collar matches the listing text. Check the label photo." :
+          `Collar appears to be ${round(evidence.max)} cm, outside your size.`,
+      });
+    }
   }
-  const tokens = size.split(/[^A-Z0-9.]+/).filter(Boolean);
-  const match = p.sizes.some((s) => tokens.includes(s) || size === s);
-  const letterSize = /^(?:X{0,4}S|M|X{0,4}L|[2-5]XL)$/;
-  if (!match && p.sizes.length && p.sizes.every((s) => letterSize.test(s)) &&
-      tokens.some((s) => letterSize.test(s)))
-    return { status: "excluded", note: "Listed size is outside your requested sizes." };
-  return {
-    status: match ? "match" : "unknown",
-    note: match
-      ? "Listed size matches. Confirm garment measurements."
-      : "Size is not confirmed for your brief.",
-  };
+  if (spec.sizes.length) {
+    const tokens = size.split(/[^A-Z0-9.]+/).filter(Boolean);
+    const match = spec.sizes.some((s) => tokens.includes(s) || size === s);
+    const letterSize = /^(?:X{0,4}S|M|X{0,4}L|[2-5]XL)$/;
+    const mismatch = !match && spec.sizes.every((s) => letterSize.test(s)) && tokens.some((s) => letterSize.test(s));
+    checks.push({
+      status: match ? "match" : mismatch ? "excluded" : "unknown",
+      note: match ? "Listed size matches. Confirm garment measurements." :
+        mismatch ? "Listed size is outside your requested sizes." : "Size is not confirmed for your brief.",
+    });
+  }
+  for (const [key, field] of Object.entries(measurementFields)) {
+    if (!spec[key]) continue;
+    const value = measured(item, key, field);
+    const [min, max] = spec[key];
+    const matches = value !== null && value >= min - 0.5 && value <= max + 0.5;
+    checks.push({
+      status: value === null ? "unknown" : matches ? "match" : "excluded",
+      note: value === null ? `${field.label} missing. Ask the seller for it.` :
+        `${field.label} evidence is ${value} ${field.unit}${matches ? "." : ", outside your range."}`,
+    });
+  }
+  const status = checks.some((c) => c.status === "excluded") ? "excluded" :
+    checks.length && checks.every((c) => c.status === "match") ? "match" : "unknown";
+  return { status, note: checks.map((c) => c.note).join(" ") || "Size is not confirmed for your brief.", checks };
 }
 
 export function disclosedDefects(text) {
@@ -445,7 +515,7 @@ export function planBasket(ranked, p) {
 }
 
 export function makeResult(items, p, meta = {}, comparables = items) {
-  const source = { live: "observed_catalogue", demo: "fictional", import: "supplied_listings" }[meta.mode];
+  const source = { live: "observed_catalogue", feed: "authorised_feed", demo: "fictional", import: "supplied_listings" }[meta.mode];
   const ranked = rankItems(items, p, { comparables, source }),
     basket = planBasket(ranked, p);
   return {

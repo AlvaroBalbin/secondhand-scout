@@ -262,7 +262,7 @@ test("discovery replaces bad detail matches and checks sellers only for qualifie
       return { user: { id, country_code: "UK", login: `seller-${id}` } };
     },
   };
-  const found = await discover(shopper, { client });
+  const found = await discover(shopper, { client, expandWardrobes: false, extraSearches: false });
   assert.deepEqual(sellerChecks, [200, 109]);
   assert.deepEqual(found.items.map(({ id, condition }) => [id, condition]), [["200", "Very good"], ["109", "Very good"]]);
   assert.deepEqual(found.meta.coverage[1], {
