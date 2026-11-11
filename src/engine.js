@@ -195,7 +195,7 @@ export function collarFromText(text) {
 
 function sellerMetricCollars(text, title = false) {
   // A seller's own inch/cm pair can use a different conversion from Vinted.
-  const pair = /\b(?:1[4-9]|2[0-2])(?:[.,]5|\s*½|\s*1\/2)?\s*(?:inches\b|inch\b|in\b|[”"])?\s*(?:\/\s*|\(\s*|\s+)(3[89]|[45]\d|60)(?:\s*[-–/]\s*(3[89]|[45]\d|60))?(?!\d|[.,]\d|\s*(?:in\b|inch|[”"]|(?:cm\s+)?(?:pit|chest|sleeve|length)\b))/g;
+  const pair = /\b(?:1[4-9]|2[0-2])(?:[.,]5|\s*½|\s*1\/2)?\s*(?:inches\b|inch\b|in\b|[”"])?\s*(?:[/|=(–-]\s*|\s+)(3[89]|[45]\d|60)(?:\s*[-–/]\s*(3[89]|[45]\d|60))?(?!\d|[.,]\d|\s*(?:in\b|inch|[”"]|(?:cm\s+)?(?:pit|chest|sleeve|length)\b))/g;
   const stated = /\b(?:collar|neck|size)(?:\s+size)?\s*[:=]?\s*(3[0-9]|[45]\d|60)(?:\s*[-–/]\s*(3[0-9]|[45]\d|60))?(?!\d|[.,]\d|\s*(?:in\b|inch|[”"]|(?:cm\s+)?(?:pit|chest|sleeve|length)\b))/g;
   const beforeCollar = /\b(3[0-9]|[45]\d|60)\s*cm\s+(?:collar|neck)\b/g;
   const titleSize = /\bshirt\s+\(?(3[0-9]|[45]\d|60)\)?$/g;

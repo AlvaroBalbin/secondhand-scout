@@ -62,6 +62,7 @@ test("seller-stated 42 cm collars never appear as 41 cm picks or near matches", 
   const disputed = [
     { title: "Men’s Hackett shirt 16.5 (42)" },
     { title: "Men’s Hackett shirt 16.5/42" },
+    { title: "Oxford shirt 16.5 in | 42 cm" },
     { title: "Hackett gingham check shirt 16.5 42 classic fit" },
     { description: "Collar size 16 1/2” / 42 cm." },
     { title: "Classic shirt 16.5 in", description: "42 cm collar. 24 inches pit to pit." },
