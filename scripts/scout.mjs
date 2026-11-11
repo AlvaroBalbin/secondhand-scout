@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { api } from "../src/app.js";
+import { guidedProfile } from "./guided.mjs";
+import { runScout } from "./request.mjs";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
-const [command = "demo", profilePath, ...rest] = args.filter(
-  (arg) => arg !== "--json",
+const demo = args.includes("--demo");
+const [command = "wizard", profilePath, ...rest] = args.filter(
+  (arg) => arg !== "--json" && arg !== "--demo",
 );
 const example = new URL("../examples/profile.json", import.meta.url);
 const money = (amount) => `£${amount.toFixed(2)}`;
@@ -12,13 +14,14 @@ const money = (amount) => `£${amount.toFixed(2)}`;
 function help() {
   console.log(`Secondhand Scout
 
-npm run scout -- demo [profile.json]                   Try sample listings
+npm run scout                                         Answer questions and search
+npm run scout -- wizard --demo                         Answer questions and try sample listings
+npm run scout -- demo [profile.json]                   Try sample listings with a ready-made brief
 npm run scout -- search profile.json                   Search Vinted UK
 npm run scout -- import profile.json URL [URL ...]     Check shared listings
 npm run scout -- rank profile.json listings.json       Rank supplied listings
 
-Add --json to print machine-readable results. Edit examples/profile.json to
-change your clothing types, sizes, brands, budget and delivery allowance.`);
+Add --json for machine-readable results. Use a profile file for saved briefs.`);
 }
 
 function report(result) {
@@ -62,28 +65,30 @@ try {
   if (["--help", "help", "-h"].includes(command)) {
     help();
   } else {
-    if (!["demo", "search", "import", "rank"].includes(command))
+    if (!["wizard", "demo", "search", "import", "rank"].includes(command))
       throw new Error("Unknown command. Run npm run scout -- help.");
-    if (!profilePath && command !== "demo")
+    if (demo && (command !== "wizard" || profilePath))
+      throw new Error("Use --demo with the guided wizard.");
+    if (command === "wizard" && profilePath)
+      throw new Error("Use wizard without a profile file, or search with a saved profile.");
+    if (!profilePath && ["import", "rank"].includes(command))
       throw new Error(
         "Provide a profile JSON file. See examples/profile.json.",
       );
-    const profile = JSON.parse(await readFile(profilePath ?? example, "utf8"));
+    const guided = command === "wizard" || (command === "search" && !profilePath);
+    const mode = guided ? (demo ? "demo" : "search") : command;
+    const profile = guided
+      ? await guidedProfile()
+      : JSON.parse(await readFile(profilePath ?? example, "utf8"));
     const body = { profile };
     if (command === "import") body.links = rest;
     if (command === "rank") {
       if (rest.length !== 1) throw new Error("Provide a listings JSON file.");
       body.listings = JSON.parse(await readFile(rest[0], "utf8"));
     }
-    const response = await api(
-      new Request(`http://localhost/api/${command}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    );
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error);
+    if (guided && mode === "search") console.error("Searching Vinted UK for your shortlist...");
+    const { ok, result } = await runScout(mode, body);
+    if (!ok) throw new Error(result.error);
     if (json) console.log(JSON.stringify(result, null, 2));
     else report(result);
   }

@@ -4,15 +4,42 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 
 ## Try it
 
-Requires Node.js 22 or newer. The CLI and API have no third-party runtime dependencies.
+Requires Git and Node.js 22 or newer. Run these commands in your terminal.
 
 ```sh
 git clone https://github.com/AlvaroBalbin/secondhand-scout.git
 cd secondhand-scout
-npm run scout -- demo
+npm ci
+npm run scout
 ```
 
-Edit [examples/profile.json](examples/profile.json) with the clothes you want, your sizes, brands and budget in GBP. Then run one of these commands.
+Enter what you want, such as `3 shirts, 2 jumpers, 1 gilet`, then answer the size and budget questions. Press Enter to skip optional preferences. Scout prints the shortlist with fit notes, listing links and estimated costs by seller.
+
+To try the same questions with fictional listings, run `npm run scout -- wizard --demo`. For a quick sample without prompts, run `npm run scout -- demo`.
+
+## Use with Codex or Claude Code
+
+Install the repo using the steps above through `npm ci`. From inside the cloned folder, run the command for your agent in PowerShell or a macOS/Linux shell.
+
+```sh
+# Codex CLI and the Codex app
+codex mcp add secondhand-scout -- node "$PWD/scripts/mcp.mjs"
+
+# Claude Code
+claude mcp add --scope user --transport stdio secondhand-scout -- node "$PWD/scripts/mcp.mjs"
+```
+
+Open a new session and ask:
+
+> Use Secondhand Scout to find three Ralph Lauren or Hackett shirts with a 41 cm collar, two size L jumpers and one size L gilet on Vinted UK. My total budget is £150 with delivery. Look for same-seller bundles.
+
+For a quick connection check, ask it to use `demo_deals` with your preferences. The server runs locally over standard input and output. It offers four read-only tools for live search, checking item links, ranking supplied listings and trying fictional examples. Setup requires no Vinted credentials or separate model API key. [Codex MCP setup](https://developers.openai.com/codex/mcp) · [Claude Code MCP setup](https://code.claude.com/docs/en/mcp)
+
+If a broad live search hits the Codex tool timeout, set `tool_timeout_sec = 120` in the existing `[mcp_servers.secondhand-scout]` section of your Codex configuration. [Codex MCP configuration](https://developers.openai.com/codex/mcp)
+
+## CLI with saved briefs
+
+For scripts and repeat searches, save your preferences using the [example brief](examples/profile.json) as a template.
 
 ```sh
 # Rank listings you collected yourself
@@ -25,7 +52,7 @@ npm run scout -- search examples/profile.json
 npm run scout -- import examples/profile.json https://www.vinted.co.uk/items/ITEM_ID
 ```
 
-Add `--json` for structured output. The sample listings are fictional.
+Add `--json` for structured output. Use `npm run --silent scout -- … --json` or call `node scripts/scout.mjs` directly if you need stdout to contain only JSON.
 
 ## Local API
 

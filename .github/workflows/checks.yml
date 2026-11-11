@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci
       - run: npm test
       - run: npm run scout -- demo
       - run: npm run scout -- rank examples/profile.json examples/listings.json

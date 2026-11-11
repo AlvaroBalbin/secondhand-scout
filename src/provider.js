@@ -48,7 +48,7 @@ export class PublicVintedTransport {
       });
     } catch {
       throw new ProviderError(
-        "Vinted did not respond. Your shopping brief is saved on this screen; try again later.",
+        "Vinted did not respond. Try again later or rank listing details you already have.",
       );
     }
     if ([401, 403, 429].includes(response.status)) {

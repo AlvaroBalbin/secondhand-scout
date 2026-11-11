@@ -61,7 +61,8 @@ export function validateProfile(input) {
       .map((s) => s.trim().toUpperCase())
       .filter(Boolean),
   );
-  if (!sizes.length || sizes.length > 4 || sizes.some((s) => s.length > 12))
+  const collarOnly = collar !== null && wants.length === 1 && wants[0].kind === "shirts";
+  if ((!sizes.length && !collarOnly) || sizes.length > 4 || sizes.some((s) => s.length > 12))
     throw new InputError("Enter up to four clothing sizes, such as M, L.");
   const department = ["men", "women", "any"].includes(input.department)
     ? input.department

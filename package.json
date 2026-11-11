@@ -4,10 +4,16 @@
   "license": "MIT",
   "type": "module",
   "description": "A small secondhand shopping assistant with honest fit checks and bundle-aware budgets.",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node scripts/dev.mjs",
     "scout": "node scripts/scout.mjs",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   }
 }
