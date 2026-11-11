@@ -112,3 +112,28 @@ test("explicit cut feedback carries across listings and garment colours exclude 
   const explicit = shop({ profile: { ...profile, styleByKind: { shirts: { require: ["slim fit"] } } }, listings });
   assert.deepEqual(ids(explicit).sort(), ["blue", "new-slim"]);
 });
+
+test("one agent feedback call saves choices and automatically replaces the skipped basket item", async (t) => {
+  const shop = await shopper(t);
+  const shirt = (id, title, price) => row(id, title, price, { kind: "shirts", size: "16.5 in | 41 cm", fee: 1 });
+  const profile = { wants: { shirts: 2, jumpers: 1 }, budget: 85,
+    fitByKind: { shirts: { collarCm: 41 }, jumpers: { sizes: ["M", "L"] } } };
+  const first = shop({ profile, listings: [
+    shirt("pink", "Pink cotton shirt", 8), shirt("slim", "Hackett slim-fit shirt", 12),
+    row("blue", "Blue V-neck jumper", 10), row("navy", "Navy V-neck jumper", 24),
+  ] });
+  const number = (id) => first.picks.find((pick) => pick.id === id).number;
+  const after = shop({ action: "feedback", changes: [
+    { action: "save", number: number("pink") }, { action: "save", number: number("blue") },
+    { action: "skip", number: number("slim"), reason: "fit", trait: "slim fit" },
+    { action: "skip", number: number("navy"), reason: "price" },
+  ], replacementListings: [shirt("classic", "Hackett classic-fit shirt", 5)] });
+  assert.equal(after.applied.length, 4);
+  assert.equal(after.followUp.meta.mode, "replay");
+  assert.equal(after.followUp.replacement.item.id, "classic");
+  assert.deepEqual(ids(after).sort(), ["blue", "classic", "pink"]);
+  assert.equal(after.followUp.leaveOpen.cost.total, 29.2);
+  assert.equal(after.basket.cost.total, 39.7);
+  assert.equal(after.taste.saves, 2);
+  assert.equal(after.taste.skips, 2);
+});

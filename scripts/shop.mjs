@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { runScout } from "./request.mjs";
 import { replaceSkipped } from "./replacement.mjs";
+import { calculateCosts, validateProfile } from "../src/engine.js";
+import { normalizeListings } from "../src/listings.js";
 import { describeTaste, feedbackFor, listingMemory, personalRanking, skipReasons, styleField } from "../src/taste.js";
 
 const statePath = () => resolve(process.env.SCOUT_TASTE_FILE || join(homedir(), ".secondhand-scout", "taste.json"));
@@ -43,6 +45,75 @@ function remembered(state, id) {
   return item;
 }
 
+function numbered(state) {
+  return (state.last?.numbers ?? []).map((id, index) => ({ number: index + 1, id }));
+}
+
+async function feedbackTurn(state, request, file) {
+  const changes = request.changes;
+  if (!state.last?.basket || !Array.isArray(changes) || changes.length < 1 || changes.length > 12)
+    throw new Error("Search first, then submit up to 12 save or skip choices together.");
+  const events = changes.map(({ action, number, id, reason, trait }) => {
+    const listedId = Number.isInteger(number) ? state.last.numbers?.[number - 1] : id;
+    const item = remembered(state, listedId);
+    if (item.demo) throw new Error("Use a real or supplied listing to teach Scout your taste.");
+    return feedbackFor(item, action, reason, trait);
+  });
+  if (new Set(events.map(({ id }) => id)).size !== events.length)
+    throw new Error("Give one save or skip choice per listing.");
+  const changedIds = new Set(events.map(({ id }) => id));
+  state.feedback = [...events, ...state.feedback.filter(({ id }) => !changedIds.has(id))].slice(0, 200);
+  await store(file, state);
+
+  const profile = validateProfile(state.last.profile);
+  const personal = personalRanking(state.feedback, null, [], state.last.profile);
+  const previous = state.last.basket;
+  const inBasket = events.filter(({ action, id }) => action === "skip" && previous.some((item) => item.id === id));
+  const focus = inBasket.find(({ reason }) => reason === "fit") ?? inBasket[0];
+  const fromReplay = request.replacementListings !== undefined;
+  const fallback = () => {
+    const items = previous.filter((item) => personal.allow(item));
+    const missing = profile.wants.map((want) => ({ kind: want.kind,
+      qty: want.qty - items.filter((item) => item.kind === want.kind).length })).filter(({ qty }) => qty > 0);
+    return { items, cost: calculateCosts(items, profile), missing };
+  };
+  let followUp = null;
+  if (focus && (state.last.mode === "search" || fromReplay)) {
+    try {
+      const options = fromReplay ? { discover: async () => ({
+        items: normalizeListings(request.replacementListings),
+        meta: { mode: "replay", warnings: [], limits: "Replacement replay uses supplied listings." },
+      }) } : undefined;
+      followUp = await replaceSkipped(state.last, state.feedback, focus.id, options);
+      if (fromReplay) followUp.meta.mode = "replay";
+    } catch (error) {
+      followUp = { basket: null, leaveOpen: fallback(), replacement: null, options: [],
+        meta: { mode: "replacement", warnings: [error.message] } };
+    }
+  }
+  const basket = followUp?.basket ?? followUp?.leaveOpen ?? fallback();
+  const alternatives = followUp?.options?.map(({ item }) => item) ?? [];
+  updateShortlist(state, basket.items, alternatives);
+  if (followUp?.replacement)
+    state.last.replacementSlots = { ...state.last.replacementSlots, [focus.id]: followUp.replacement.item.id };
+  await store(file, state);
+  return { action: "feedback", applied: events.map(({ id, action, reason }) => ({ id, action, reason })),
+    previous: { items: previous, cost: calculateCosts(previous, profile) },
+    basket, followUp, picks: numbered(state), taste: describeTaste(state.feedback) };
+}
+
+function updateShortlist(state, basket, alternatives = [], demo = false) {
+  const recent = new Map();
+  for (const item of [...basket, ...alternatives]) {
+    const id = String(item.id);
+    if (!recent.has(id)) recent.set(id, { ...listingMemory(item), demo });
+  }
+  state.last.basket = basket;
+  state.last.numbers = [...recent.keys()];
+  for (const item of state.recent) if (!recent.has(item.id)) recent.set(item.id, item);
+  state.recent = [...recent.values()].slice(0, 80);
+}
+
 function moreProfile(profile, anchor, style) {
   if (style == null) style = {};
   if (typeof style !== "object" || Array.isArray(style) ||
@@ -69,7 +140,7 @@ function moreProfile(profile, anchor, style) {
 export async function shop(request, file = statePath()) {
   const action = request?.action ?? "search";
   if (action === "taste") return { action, taste: describeTaste((await readState(file)).feedback) };
-  if (!["search", "more", "save", "skip", "replace", "forget"].includes(action)) throw new Error("Unknown Scout shop action.");
+  if (!["search", "more", "save", "skip", "feedback", "replace", "forget"].includes(action)) throw new Error("Unknown Scout shop action.");
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   let lock;
   try {
@@ -84,6 +155,7 @@ export async function shop(request, file = statePath()) {
       await unlink(file).catch((error) => { if (error.code !== "ENOENT") throw error; });
       return { action, taste: describeTaste([]) };
     }
+    if (action === "feedback") return await feedbackTurn(state, request, file);
     if (action === "save" || action === "skip") {
       const item = remembered(state, request.id);
       if (item.demo) throw new Error("Use a real or supplied listing to teach Scout your taste.");
@@ -94,14 +166,12 @@ export async function shop(request, file = statePath()) {
     }
     if (action === "replace") {
       const result = await replaceSkipped(state.last, state.feedback, request.id);
-      const recent = result.options.map(({ item }) => listingMemory(item));
-      state.recent = [...recent, ...state.recent.filter((item) => !recent.some(({ id }) => id === item.id))].slice(0, 80);
       if (result.basket) {
-        state.last.basket = result.basket.items;
+        updateShortlist(state, result.basket.items, result.options.map(({ item }) => item));
         state.last.replacementSlots = { ...state.last.replacementSlots, [request.id]: result.replacement.item.id };
       }
       await store(file, state);
-      return { action, ...result, taste: describeTaste(state.feedback) };
+      return { action, ...result, picks: numbered(state), taste: describeTaste(state.feedback) };
     }
     const anchor = action === "more" ? remembered(state, request.id) : null;
     if (anchor && !state.last) throw new Error("Run a shopping search before requesting more like this.");
@@ -121,18 +191,13 @@ export async function shop(request, file = statePath()) {
       nearMatches: true,
     });
     if (!ok) throw new Error(result.error);
-    const picks = [...result.basket.items, ...result.items.slice(0, 12)];
-    const recent = new Map();
-    for (const item of picks) if (!recent.has(String(item.id))) {
-      const memory = listingMemory(item);
-      recent.set(memory.id, { ...memory, demo: mode === "demo" });
-    }
-    for (const item of state.recent) if (!recent.has(item.id)) recent.set(item.id, item);
-    state.recent = [...recent.values()].slice(0, 80);
-    state.last = { profile, mode, basket: result.basket.items };
+    const basketIds = new Set(result.basket.items.map(({ id }) => id));
+    const alternatives = result.items.filter(({ id }) => !basketIds.has(id)).slice(0, 6);
+    state.last = { profile, mode };
+    updateShortlist(state, result.basket.items, alternatives, mode === "demo");
     await store(file, state);
     return { action, profile: result.profile, basket: result.basket, nearMatches: result.nearMatches,
-      meta: result.meta, taste: describeTaste(state.feedback) };
+      alternatives, picks: numbered(state), meta: result.meta, taste: describeTaste(state.feedback) };
   } finally {
     await lock.close();
     await unlink(`${file}.lock`);

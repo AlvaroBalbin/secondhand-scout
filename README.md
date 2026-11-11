@@ -5,7 +5,7 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 ## Paste this into an agent chat
 
 ```text
-Find me live Vinted UK deals with Secondhand Scout. Ask me in one message for items, quantities, fit per item type, budget including delivery and any style preferences. Clone https://github.com/AlvaroBalbin/secondhand-scout.git in this chat’s workspace and run `node scripts/scout.mjs search --stdin --json` from the clone. Pipe in my answers like `{"profile":{"wants":{"jumpers":1},"fitByKind":{"jumpers":{"sizes":["L"]}},"styleByKind":{"jumpers":{"search":"V-neck","prefer":["merino"]}},"budget":50}}`, using style fields only for my preferences. Use the public repo and Vinted. If needed, request approval for the clone or search. Show links and estimated delivered total. If blocked, say why and give prefilled Vinted searches.
+Be my Secondhand Scout for Vinted UK. Find the Secondhand Scout checkout in this workspace or clone https://github.com/AlvaroBalbin/secondhand-scout.git here, read AGENT-QUICKSTART.md, and run the shopping commands yourself. Ask me for any missing shopping details in one message. Show numbered picks and delivered estimates. When I say save, skip, or more like this, carry my choices forward and show what changed.
 ```
 
 Use a Codex or Claude Code chat with terminal access and Git and Node.js 22 or newer available. The agent handles the clone and search without an npm install or MCP setup. Approve the clone or search if your client asks. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
@@ -33,12 +33,6 @@ Scout keeps your feedback on the machine running the command in `~/.secondhand-s
 Agents use the same command with `--stdin --json`. See [shopping actions for agents](AGENT-QUICKSTART.md#shopping-with-feedback) for examples and how to clear the saved data.
 
 After a skip, use `replace 2` to look for a cheaper alternative to that basket slot. Scout checks sellers already in the basket before searching the wider catalogue. For a slim-fit shirt skip, it looks for listings that state a different cut. It shows the full basket and the price of leaving the slot open, using one estimated delivery charge per seller.
-
-Paste this into a terminal-capable agent chat that has this version of the repository in its workspace.
-
-```text
-Help me shop on Vinted UK with Secondhand Scout. Read AGENT-QUICKSTART.md in the Scout checkout, ask me once for my items, sizes, total delivered budget and style, then use node scripts/scout.mjs shop --stdin --json for my searches and when I say save, skip or more like this. Give me listing links, delivered estimates and any fit questions.
-```
 
 ## Use with Codex or Claude Code
 
