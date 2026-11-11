@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { runScout } from "./request.mjs";
+import { replaceSkipped } from "./replacement.mjs";
 import { describeTaste, feedbackFor, listingMemory, personalRanking, skipReasons, styleField } from "../src/taste.js";
 
 const statePath = () => resolve(process.env.SCOUT_TASTE_FILE || join(homedir(), ".secondhand-scout", "taste.json"));
@@ -68,7 +69,7 @@ function moreProfile(profile, anchor, style) {
 export async function shop(request, file = statePath()) {
   const action = request?.action ?? "search";
   if (action === "taste") return { action, taste: describeTaste((await readState(file)).feedback) };
-  if (!["search", "more", "save", "skip", "forget"].includes(action)) throw new Error("Unknown Scout shop action.");
+  if (!["search", "more", "save", "skip", "replace", "forget"].includes(action)) throw new Error("Unknown Scout shop action.");
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   let lock;
   try {
@@ -90,6 +91,17 @@ export async function shop(request, file = statePath()) {
       state.feedback = [event, ...state.feedback.filter((previous) => previous.id !== event.id)].slice(0, 200);
       await store(file, state);
       return { action, id: event.id, reason: event.reason, taste: describeTaste(state.feedback) };
+    }
+    if (action === "replace") {
+      const result = await replaceSkipped(state.last, state.feedback, request.id);
+      const recent = result.options.map(({ item }) => listingMemory(item));
+      state.recent = [...recent, ...state.recent.filter((item) => !recent.some(({ id }) => id === item.id))].slice(0, 80);
+      if (result.basket) {
+        state.last.basket = result.basket.items;
+        state.last.replacementSlots = { ...state.last.replacementSlots, [request.id]: result.replacement.item.id };
+      }
+      await store(file, state);
+      return { action, ...result, taste: describeTaste(state.feedback) };
     }
     const anchor = action === "more" ? remembered(state, request.id) : null;
     if (anchor && !state.last) throw new Error("Run a shopping search before requesting more like this.");
@@ -117,7 +129,7 @@ export async function shop(request, file = statePath()) {
     }
     for (const item of state.recent) if (!recent.has(item.id)) recent.set(item.id, item);
     state.recent = [...recent.values()].slice(0, 80);
-    state.last = { profile, mode };
+    state.last = { profile, mode, basket: result.basket.items };
     await store(file, state);
     return { action, profile: result.profile, basket: result.basket, nearMatches: result.nearMatches,
       meta: result.meta, taste: describeTaste(state.feedback) };
@@ -134,12 +146,12 @@ export async function shopPrompt(initial, show) {
   const reader = createInterface({ input: process.stdin, output: process.stderr });
   try {
     while (true) {
-      const input = await reader.question("\nSave 1, skip 1 price, more 1 navy, taste or done? ");
+      const input = await reader.question("\nSave 1, skip 1 fit slim fit, replace 1, more 1 navy, taste or done? ");
       const [action, index, ...rest] = input.trim().split(/\s+/);
       if (!action || action.toLowerCase() === "done") break;
       const verb = action.toLowerCase();
-      if (!["save", "skip", "more", "taste"].includes(verb)) {
-        console.error("Enter save, skip, more, taste or done.");
+      if (!["save", "skip", "replace", "more", "taste"].includes(verb)) {
+        console.error("Enter save, skip, replace, more, taste or done.");
         continue;
       }
       const item = result.basket.items[Number(index) - 1];
@@ -152,6 +164,10 @@ export async function shopPrompt(initial, show) {
           const phrase = rest.join(" ");
           result = await shop({ action: verb, id: item.id, style: phrase ? { require: [phrase] } : undefined });
           show(result);
+        } else if (verb === "replace") {
+          const replacement = await shop({ action: verb, id: item.id });
+          show(replacement);
+          if (replacement.basket) result = replacement;
         } else {
           const feedback = await shop({ action: verb, id: item?.id, reason: rest[0], trait: rest.slice(1).join(" ") || undefined });
           if (verb === "taste") console.log(JSON.stringify(feedback.taste, null, 2));

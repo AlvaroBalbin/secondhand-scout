@@ -532,3 +532,90 @@ export async function importListings(
     },
   };
 }
+
+export async function discoverReplacements(profile, {
+  kind, sellerIds, exclude, maxPrice, matches, client = new PublicVintedTransport(),
+}) {
+  const checked = new Set(exclude);
+  const items = [], warnings = [];
+  const meta = { wardrobesChecked: 0, wardrobeItemsSeen: 0, catalogueQueries: 0,
+    catalogueItemsSeen: 0, detailChecks: 0, wardrobeMatches: 0, catalogueMatches: 0, warnings };
+  async function verify(rows, seller, limit) {
+    let attempts = 0;
+    const candidates = rows.flatMap((row) => {
+      try {
+        const item = clean(row, kind);
+        if (checked.has(item.id) || item.price > maxPrice ||
+            !eligible(item, profile, { preview: true })) return [];
+        return [item];
+      } catch {
+        return [];
+      }
+    });
+    const priority = (item) => Number(matches(item)) * 2 +
+      Number(eligible(item, profile));
+    candidates.sort((a, b) => priority(b) - priority(a) || a.price - b.price);
+    for (const item of candidates) {
+      if (attempts >= limit || (client.calls ?? 0) >= REQUEST_LIMIT - 3) break;
+      if (checked.has(item.id)) continue;
+      checked.add(item.id);
+      attempts++;
+      meta.detailChecks++;
+      try {
+        const detail = await readListing(client, item.url, kind);
+        if (!detail.sellerId || (seller && detail.sellerId !== seller)) continue;
+        const listing = { ...item, ...detail, size: detail.size || item.size,
+          condition: conditionTier(item.condition) ? item.condition : detail.condition };
+        if (!eligible(listing, profile) || !matches(listing) || listing.price > maxPrice) continue;
+        if (!seller) {
+          const owner = await getSeller(client, Number(detail.sellerId), "uk");
+          if (owner.countryCode !== "UK") continue;
+          listing.sellerName = owner.username;
+        }
+        items.push(listing);
+        meta[seller ? "wardrobeMatches" : "catalogueMatches"]++;
+      } catch (error) {
+        if (client.blocked) throw error;
+        warnings.push(`Could not verify ${item.title}.`);
+      }
+    }
+  }
+
+  for (const seller of [...new Set(sellerIds)].filter((id) => /^\d+$/.test(id)).slice(0, 6)) {
+    if ((client.calls ?? 0) >= 15) break;
+    try {
+      const { items: rows } = await getSellerItems(client, Number(seller), "uk", 24);
+      meta.wardrobesChecked++;
+      meta.wardrobeItemsSeen += rows.length;
+      await verify(rows, seller, 2);
+    } catch (error) {
+      if (client.blocked) throw error;
+      warnings.push("A basket seller’s wardrobe could not be checked.");
+    }
+  }
+
+  const collar = profile.fitByKind[kind].collarCm;
+  const phrase = profile.styleByKind?.[kind]?.search;
+  const garment = kind === "trousers" || kind === "shoes" ? kind : kind.slice(0, -1);
+  const brands = profile.brands.length ? profile.brands : [""];
+  const terms = phrase ? [phrase, ""] : [""];
+  const catalogue = [];
+  for (const term of terms) for (const brand of brands) {
+    if (meta.catalogueQueries >= 6 || (client.calls ?? 0) >= 20) break;
+    const query = [brand, garment, collar === null ? "" : collarSearchInches(collar), term].filter(Boolean).join(" ");
+    try {
+      const result = await searchItems(client, { query, country: "uk", priceMax: maxPrice,
+        categoryId: profile.department === "men" ? 2050 : profile.department === "women" ? 1904 : undefined,
+        condition: ["good", "very_good", "new_without_tags", "new_with_tags"],
+        perPage: 48, sortBy: term ? "relevance" : SORT_VALUE.price_low_to_high });
+      meta.catalogueQueries++;
+      meta.catalogueItemsSeen += result.items.length;
+      catalogue.push(...result.items);
+    } catch (error) {
+      if (client.blocked) throw error;
+      warnings.push(`Could not search ${query}.`);
+    }
+  }
+  await verify(catalogue, null, 10);
+  return { items, meta };
+}

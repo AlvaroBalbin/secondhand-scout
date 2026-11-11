@@ -41,6 +41,17 @@ Add --json for machine-readable results. Use a profile file for saved briefs.`);
 
 function report(result, interactive = false) {
   const { basket, meta, profile } = result;
+  if (result.leaveOpen) {
+    console.log(`Leave the slot open: ${money(result.leaveOpen.cost.total)} estimated delivered.`);
+    if (!basket) {
+      console.log("No cheaper replacement matched the brief.");
+      for (const warning of meta.warnings ?? []) console.log(warning);
+      return;
+    }
+    const difference = money(basket.cost.total - result.leaveOpen.cost.total);
+    console.log(`Fill it for ${difference} more with ${result.replacement.item.title}.`);
+    if (result.replacement.sameSeller) console.log("The replacement shares the delivery allowance with another pick.");
+  }
   console.log(
     meta.mode === "demo"
       ? "Sample shortlist (example listings)"

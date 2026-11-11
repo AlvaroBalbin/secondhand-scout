@@ -32,6 +32,8 @@ Scout keeps your feedback on the machine running the command in `~/.secondhand-s
 
 Agents use the same command with `--stdin --json`. See [shopping actions for agents](AGENT-QUICKSTART.md#shopping-with-feedback) for examples and how to clear the saved data.
 
+After a skip, use `replace 2` to look for a cheaper alternative to that basket slot. Scout checks sellers already in the basket before searching the wider catalogue. For a slim-fit shirt skip, it looks for listings that state a different cut. It shows the full basket and the price of leaving the slot open, using one estimated delivery charge per seller.
+
 Paste this into a terminal-capable agent chat that has this version of the repository in its workspace.
 
 ```text

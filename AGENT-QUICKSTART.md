@@ -32,6 +32,8 @@ When the shopper wants Scout to remember taste, use `node scripts/scout.mjs shop
 | Save a pick | `{"action":"save","id":"ACTUAL_LISTING_ID"}` |
 | Skip a pick for its price | `{"action":"skip","id":"ACTUAL_LISTING_ID","reason":"price"}` |
 | Skip because of a specific style | `{"action":"skip","id":"ACTUAL_LISTING_ID","reason":"style","trait":"crew neck"}` |
+| Skip because of a slim cut | `{"action":"skip","id":"ACTUAL_LISTING_ID","reason":"fit","trait":"slim fit"}` |
+| Find a cheaper replacement after a skip | `{"action":"replace","id":"SKIPPED_LISTING_ID"}` |
 | More like this, in navy | `{"action":"more","id":"ACTUAL_LISTING_ID","style":{"require":["navy"]}}` |
 | Show remembered preferences | `{"action":"taste"}` |
 | Clear the saved brief and feedback | `{"action":"forget"}` |
@@ -39,3 +41,5 @@ When the shopper wants Scout to remember taste, use `node scripts/scout.mjs shop
 Map references like “the second one” to the listing ID in the previous result. Record feedback only when the shopper gives it. Use `styleByKind` with `require` for explicit requirements and `prefer` for flexible preferences. Use `more` with no `style` for close alternatives under the original brief. Quote any item in `nearMatches` separately and include its seller question.
 
 Feedback stays in the local taste file across commands. For an offline search, add `listings` with stable string IDs to the request, and supply those rows again for `more`. Add `"personalise":false` to a search to compare it with feedback disabled. Fictional demo picks cannot be saved.
+
+The replacement action checks seller wardrobes and the live catalogue using the last basket. Compare `basket.cost.total` with `leaveOpen.cost.total`. A null basket means there was no cheaper confirmed replacement in the listings checked. Use `fitEvidence` for the new listing and `meta.limits` for the scope of rechecks.
