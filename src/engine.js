@@ -193,20 +193,34 @@ export function collarFromText(text) {
   return n >= 30 && n <= 60 ? { min: n, max: n } : null;
 }
 
+function sellerMetricCollars(text, title = false) {
+  // A seller's own inch/cm pair can use a different conversion from Vinted.
+  const pair = /\b(?:1[4-9]|2[0-2])(?:[.,]5|\s*½|\s*1\/2)?\s*(?:inches\b|inch\b|in\b|[”"])?\s*(?:\/\s*|\(\s*|\s+)(3[89]|[45]\d|60)(?:\s*[-–/]\s*(3[89]|[45]\d|60))?(?!\d|[.,]\d|\s*(?:in\b|inch|[”"]|(?:cm\s+)?(?:pit|chest|sleeve|length)\b))/g;
+  const stated = /\b(?:collar|neck|size)(?:\s+size)?\s*[:=]?\s*(3[0-9]|[45]\d|60)(?:\s*[-–/]\s*(3[0-9]|[45]\d|60))?(?!\d|[.,]\d|\s*(?:in\b|inch|[”"]|(?:cm\s+)?(?:pit|chest|sleeve|length)\b))/g;
+  const beforeCollar = /\b(3[0-9]|[45]\d|60)\s*cm\s+(?:collar|neck)\b/g;
+  const titleSize = /\bshirt\s+\(?(3[0-9]|[45]\d|60)\)?$/g;
+  return [pair, stated, beforeCollar, ...(title ? [titleSize] : [])]
+    .flatMap((pattern) => [...text.matchAll(pattern)])
+    .map(([, min, max = min]) => ({ min: Number(min), max: Number(max) }));
+}
+
 function collarEvidence(item) {
   const listingSize = norm(item.size);
   const dual = listingSize.match(/^(1[4-9](?:[.,]5)?|2[0-2])\s*in\s*\|\s*(\d{2})\s*cm$/);
-  const declared = norm(item.description).match(
+  const description = norm(item.description);
+  const declared = description.match(
     /\b(?:collar|neck)(?:\s+size)?\s*[:=]?\s*\d{2}(?:[.,]5|\s*½|\s*1\/2)?(?:\s*[-–/]\s*\d{2})?\s*(?:inches|inch|in\b|cm|["”])?/,
   )?.[0];
   const title = norm(item.title).replace(/\b\d{2}\s*cm\s+(?:pit[ -]to[ -]pit|chest|sleeve|length)\b|\b(?:pit[ -]to[ -]pit|chest|sleeve|length)\s*[:=]?\s*\d{2}\s*cm\b/g, "");
+  const explicit = [...sellerMetricCollars(description), ...sellerMetricCollars(title, true)];
+  if (explicit.length) return explicit;
   const seller = collarFromText(declared) || collarFromText(title);
-  if (!dual) return seller || collarFromText(listingSize);
+  if (!dual) return [seller || collarFromText(listingSize)].filter(Boolean);
   const inches = Number(dual[1].replace(",", "."));
   const cm = Number(dual[2]);
   if (seller && (seller.min !== seller.max ||
-      Math.abs(seller.min - inches * 2.54) > 0.02 && seller.min !== cm)) return seller;
-  return { min: cm, max: cm };
+      Math.abs(seller.min - inches * 2.54) > 0.02 && seller.min !== cm)) return [seller];
+  return [{ min: cm, max: cm }];
 }
 
 function measured(item, key, field) {
@@ -248,7 +262,7 @@ export function assessFit(item, p) {
   const checks = [];
   if (spec.collarCm !== null) {
     const evidence = collarEvidence(item);
-    if (!evidence)
+    if (!evidence.length)
       checks.push({
         status: "unknown",
         note: "Collar size missing. Check the label photo.",
@@ -256,12 +270,12 @@ export function assessFit(item, p) {
       });
     else {
       const categoryInches = marketCollars[spec.collarCm];
-      const ok = categoryInches && evidence.inches !== undefined ? evidence.inches === categoryInches :
-        spec.collarCm >= evidence.min - 0.6 && spec.collarCm <= evidence.max + 0.6;
+      const mismatch = evidence.find(({ min, max, inches }) => categoryInches && inches !== undefined ?
+        inches !== categoryInches : spec.collarCm < min - 0.6 || spec.collarCm > max + 0.6);
       checks.push({
-        status: ok ? "match" : "excluded",
-        note: ok ? "Collar matches the listing text. Check the label photo." :
-          `Collar appears to be ${round(evidence.max)} cm, outside your size.`,
+        status: mismatch ? "excluded" : "match",
+        note: mismatch ? `Collar appears to be ${round(mismatch.max)} cm, outside your size.` :
+          "Collar matches the listing text. Check the label photo.",
       });
     }
   }

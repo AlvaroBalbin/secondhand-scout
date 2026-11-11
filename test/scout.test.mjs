@@ -56,6 +56,30 @@ test("Vinted collar labels match their catalogue size and explicit conflicting m
   assert.equal(assessFit({ ...shirt, size: "L" }, profile).status, "unknown");
 });
 
+test("seller-stated 42 cm collars never appear as 41 cm picks or near matches", () => {
+  const p41 = validateProfile({ wants: { shirts: 2 }, collar: 41, budget: 65 });
+  const p42 = validateProfile({ wants: { shirts: 1 }, collar: 42, budget: 65 });
+  const disputed = [
+    { title: "Men’s Hackett shirt 16.5 (42)" },
+    { title: "Men’s Hackett shirt 16.5/42" },
+    { title: "Hackett gingham check shirt 16.5 42 classic fit" },
+    { description: "Collar size 16 1/2” / 42 cm." },
+    { title: "Classic shirt 16.5 in", description: "42 cm collar. 24 inches pit to pit." },
+  ].map((item, index) => ({ ...shirt, ...item, id: `disputed-${index}` }));
+  for (const item of disputed) {
+    assert.equal(assessFit(item, p41).status, "excluded", item.title);
+    assert.equal(assessFit(item, p42).status, "match", item.title);
+  }
+  const genuine = { ...shirt, id: "genuine", title: "Oxford shirt 16½ collar",
+    description: "Chest 42 inches. Sleeve 42 cm." };
+  const result = makeResult([...disputed, genuine], p41, {}, undefined, { nearMatches: true });
+  assert.deepEqual(result.basket.items.map(({ id }) => id), ["genuine"]);
+  assert.deepEqual(result.items.map(({ id }) => id), ["genuine"]);
+  assert.deepEqual(result.nearMatches, []);
+  assert.equal(assessFit({ ...shirt, title: "Oxford shirt 16.5 (42)", description: "Collar 41 cm." }, p41).status, "excluded");
+  assert.equal(assessFit({ ...shirt, title: "Oxford shirt 16/40-41" }, p41).status, "match");
+});
+
 test("listing categories and logo evidence distinguish actual garment details", () => {
   for (const title of ["Hackett shirt", "Hackett slim fit shirt", "Oxford button-down"]) {
     assert.equal(kindMatches({ title }, "shirts"), true, title);
