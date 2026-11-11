@@ -14,6 +14,10 @@ const norm = (s) =>
     .replace(/[’']/g, "")
     .trim();
 const unique = (a) => [...new Set(a)];
+const marketCollars = { 39: 15.5, 40: 16, 41: 16.5, 42: 17, 43: 17.5, 44: 18 };
+export function collarSearchInches(cm) {
+  return marketCollars[cm] ?? Math.round((cm / 2.54) * 2) / 2;
+}
 const readSizes = (value) => unique(String(value ?? "").split(",").map((size) => size.trim().toUpperCase()).filter(Boolean));
 const validSizes = (sizes) => sizes.length <= 4 && sizes.every((size) => size.length <= 12);
 const measurementFields = {
@@ -148,11 +152,11 @@ export function kindMatches(item, kind) {
   if (kind === "shirts")
     return (
       /\bshirt\b|oxford|button.?down/.test(t) &&
-      !/t.?shirt|sweatshirt|polo shirt|rugby|short.?sleeve/.test(t)
+      !/\bt[ -]?shirts?\b|\bsweatshirts?\b|\bpolo shirts?\b|\brugby\b|\bshort[ -]?sleeve/.test(t)
     );
   if (kind === "jumpers")
     return (
-      /jumper|sweater|cardigan|knit|pullover|crewneck/.test(t) &&
+      /jumper|sweater|cardigan|knit|pullover|crewneck|\bv[ -]neck\b/.test(t) &&
       !/sleeveless|gilet|vest/.test(t) &&
       !/\bsweatshirts?\b/.test(norm(`${item.title} ${item.description || ""}`)
         .replace(/\bnot (?:a )?sweatshirt\b/g, ""))
@@ -170,19 +174,39 @@ export function collarFromText(text) {
   if (m && +m[1] >= 30 && +m[2] <= 60 && +m[2] >= +m[1])
     return { min: +m[1], max: +m[2] };
   m = t.match(
-    /\b(1[4-9](?:[.,]5)?|2[0-2])\s*(?:inches|inch|in\b|[”"]|\/)\s*(?:(\d{2}))?/,
+    /\b(1[4-9](?:[.,]5)?|2[0-2])\s*(?:inches|inch|in\b|[”"]|\/|collar\b)/,
   );
   if (m) {
-    const cm = round(Number(m[1].replace(",", ".")) * 2.54);
-    return { min: cm, max: cm };
+    const inches = Number(m[1].replace(",", "."));
+    const cm = round(inches * 2.54);
+    return { min: cm, max: cm, inches };
   }
   m = t.match(/\b(1[4-9])\s*(?:½|1\/2)(?!\d)/);
-  if (m) return { min: (+m[1] + 0.5) * 2.54, max: (+m[1] + 0.5) * 2.54 };
+  if (m) {
+    const inches = Number(m[1]) + 0.5;
+    return { min: inches * 2.54, max: inches * 2.54, inches };
+  }
   m = t.match(
     /(?:collar|neck|size)\s*[:=]?\s*(\d{2})(?:\s*cm)?\b|\b(\d{2})\s*cm\b|^(\d{2})$/,
   );
   const n = m ? +(m[1] || m[2] || m[3]) : 0;
   return n >= 30 && n <= 60 ? { min: n, max: n } : null;
+}
+
+function collarEvidence(item) {
+  const listingSize = norm(item.size);
+  const dual = listingSize.match(/^(1[4-9](?:[.,]5)?|2[0-2])\s*in\s*\|\s*(\d{2})\s*cm$/);
+  const declared = norm(item.description).match(
+    /\b(?:collar|neck)(?:\s+size)?\s*[:=]?\s*\d{2}(?:[.,]5|\s*½|\s*1\/2)?(?:\s*[-–/]\s*\d{2})?\s*(?:inches|inch|in\b|cm|["”])?/,
+  )?.[0];
+  const title = norm(item.title).replace(/\b\d{2}\s*cm\s+(?:pit[ -]to[ -]pit|chest|sleeve|length)\b|\b(?:pit[ -]to[ -]pit|chest|sleeve|length)\s*[:=]?\s*\d{2}\s*cm\b/g, "");
+  const seller = collarFromText(declared) || collarFromText(title);
+  if (!dual) return seller || collarFromText(listingSize);
+  const inches = Number(dual[1].replace(",", "."));
+  const cm = Number(dual[2]);
+  if (seller && (seller.min !== seller.max ||
+      Math.abs(seller.min - inches * 2.54) > 0.02 && seller.min !== cm)) return seller;
+  return { min: cm, max: cm };
 }
 
 function measured(item, key, field) {
@@ -223,13 +247,7 @@ export function assessFit(item, p) {
   const spec = p.fitByKind?.[item.kind] ?? { sizes: p.sizes, collarCm: item.kind === "shirts" ? p.collar : null };
   const checks = [];
   if (spec.collarCm !== null) {
-    const declared = norm(item.description).match(
-      /\b(?:collar|neck)(?:\s+size)?\s*[:=]?\s*\d{2}(?:[.,]5|½)?(?:\s*[-–/]\s*\d{2})?\s*(?:inches|inch|in\b|cm|["”])?/,
-    )?.[0];
-    const evidence =
-      collarFromText(declared) ||
-      collarFromText(item.title) ||
-      collarFromText(size);
+    const evidence = collarEvidence(item);
     if (!evidence)
       checks.push({
         status: "unknown",
@@ -237,7 +255,9 @@ export function assessFit(item, p) {
         question: "What collar size is printed on the label?",
       });
     else {
-      const ok = spec.collarCm >= evidence.min - 0.6 && spec.collarCm <= evidence.max + 0.6;
+      const categoryInches = marketCollars[spec.collarCm];
+      const ok = categoryInches && evidence.inches !== undefined ? evidence.inches === categoryInches :
+        spec.collarCm >= evidence.min - 0.6 && spec.collarCm <= evidence.max + 0.6;
       checks.push({
         status: ok ? "match" : "excluded",
         note: ok ? "Collar matches the listing text. Check the label photo." :
@@ -319,7 +339,7 @@ const FASTENER = "(?:zip(?:per)?s?|buttons?|press[ -]studs?|poppers?)";
 const DAMAGE_WORD = "(?:holes?|stains?|staining|rips?|tears?|damage[d]?|fray(?:ed|ing)?|discolou?r(?:ation|ed|ing)|yellowing|bobbl(?:es?|ing)|pilling|fad(?:ed|ing))";
 const NEGATED_ISSUE = `(?:${DAMAGE_WORD}|marks?|wear|flaws?|(?:missing|broken|lost)\\s+${FASTENER}|${FASTENER}\\s+(?:missing|broken|lost))`;
 const NEGATED_LIST = new RegExp(
-  `\\b(?:no|without|free (?:of|from))\\s+(?:signs? of\\s+)?(?:(?:any|visible|noticeable|major|grubby)\\s+){0,2}${NEGATED_ISSUE}\\b` +
+  `\\b(?:no|without|free (?:of|from))\\s+(?:signs? of\\s+)?(?:(?:any|obvious|visible|noticeable|major|grubby)\\s+){0,3}${NEGATED_ISSUE}\\b` +
   `(?:\\s*(?:,|\\bor\\b|\\band\\b)\\s*(?:(?:visible|noticeable|major|grubby)\\s+)?${NEGATED_ISSUE}\\b)*`,
   "g",
 );
@@ -334,6 +354,7 @@ export function disclosedDefects(text) {
     .replace(/\bmarks\s*(?:&|and)\s*spencer\b/g, " ")
     .replace(/\b(?:faded|fading) (?:denim )?(?:wash|effect|style)\b/g, " ");
   return DAMAGE.test(remaining) || FASTENER_DAMAGE.test(remaining) ||
+    /\b(?:pulled(?:\s*\/\s*loose)?|loose)\s+threads?\b/.test(remaining) ||
     MARK_DISCLOSURE.test(remaining) || /\bneeds?\s+(?:a\s+)?(?:repair|fix|replacement)\b/.test(remaining);
 }
 
@@ -504,6 +525,14 @@ export function listingStyleEvidence(item, preferences = []) {
   });
 }
 
+export function hasLogoEvidence(item) {
+  const outside = (value) => String(value ?? "").replace(
+    /\b(?:embroidered logo|pony logo|embroidered (?:polo )?pony)\s+(?:only\s+)?(?:on\s+the\s+|on\s+an?\s+)?(?:inner|inside|internal)\b[^.!?;\n]*/gi, "");
+  return listingStyleEvidence({ title: outside(item.title), description: outside(item.description) },
+    ["embroidered logo", "embroidered pony", "embroidered polo pony", "pony logo", "chest logo",
+    "horse logo", "logo on the chest", "embroidered hackett logo", "embroidered crest", "chest crest"]).length > 0;
+}
+
 export function rankItems(items, p, { comparables = items, source = "supplied_listings", personal, preview = false } = {}) {
   const seen = new Set();
   const pool = items.filter((item) => eligible(item, p, { preview }) && (personal?.allow(item) ?? true) && isNewListing(seen, item));
@@ -519,8 +548,7 @@ export function rankItems(items, p, { comparables = items, source = "supplied_li
         ? comparePrice(item, groups, source)
         : null;
       const reasons = [fit.status === "match" ? "Listed size matches your brief" : "Size needs checking"];
-      const listingText = norm(`${item.title} ${item.description || ""}`);
-      const logo = /embroider|pony|logo/.test(listingText);
+      const logo = hasLogoEvidence(item);
       if (logo) reasons.push("Seller mentions a logo; check the photo");
       if (deal?.belowMedian > 0)
         reasons.push(
@@ -537,6 +565,7 @@ export function rankItems(items, p, { comparables = items, source = "supplied_li
         ? pence(Math.max(0, Math.min(8, deal.belowMedian / 4, deal.medianWithFees * 0.1)))
         : 0;
       const taste = personal?.score(item);
+      if (taste?.cutUnconfirmed) reasons.push("Cut is unspecified. Ask the seller to confirm it.");
       const adjustment = (wearAllowance[conditionTier(item.condition)] ?? 100) -
         Math.min(400, styleEvidence.length * 200) - (p.logos && logo ? 200 : 0) - discountCredit +
         (taste?.adjustment ?? 0);

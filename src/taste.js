@@ -1,4 +1,4 @@
-import { listingStyleEvidence } from "./engine.js";
+import { hasLogoEvidence, listingStyleEvidence } from "./engine.js";
 
 const TERMS = {
   colour: ["navy", "olive", "burgundy", "black", "white", "cream", "grey", "gray", "blue", "green", "brown", "pink", "red", "beige"],
@@ -15,17 +15,21 @@ export function styleField(term) {
 }
 
 function traits(item) {
-  const brand = String(item.brand || "").trim().toLowerCase().replace(/^polo ralph lauren$/, "ralph lauren").slice(0, 80);
+  const brand = String(item.brand || "").trim().toLowerCase()
+    .replace(/^polo ralph lauren$/, "ralph lauren").replace(/^hackett london$/, "hackett").slice(0, 80);
   const found = brand ? [{ field: "brand", value: brand }] : [];
+  const colourLine = String(item.description || "").match(/(?:^|\n)\s*[•*\-]?\s*colou?r\s*:\s*([^\n.]+)/i)?.[1];
+  const colourTitle = (colourLine || item.title || "").split(/\b(?:with|featuring|and a)\b/i)[0]
+    .replace(/\b\w+\s+(?:(?:embroidered|polo)\s+)*(?:pony|logo|crest)\b/gi, "");
   for (const [field, terms] of Object.entries(TERMS)) {
-    const evidence = listingStyleEvidence(item, terms);
+    const evidence = listingStyleEvidence(field === "colour" ? { title: colourTitle } : item, terms);
     const values = new Set(evidence.map(({ term }) => term === "gray" ? "grey" : term));
     if (values.has("navy")) values.delete("blue");
     if (values.has("olive")) values.delete("green");
     if (values.has("merino") || values.has("lambswool")) values.delete("wool");
     for (const value of values) found.push({ field, value });
   }
-  if (listingStyleEvidence(item, ["embroidered pony logo"]).length &&
+  if (hasLogoEvidence(item) &&
       !found.some(({ value }) => value === "embroidered logo"))
     found.push({ field: "style", value: "embroidered logo" });
   return found;
@@ -78,14 +82,25 @@ export function describeTaste(feedback) {
   };
 }
 
-export function personalRanking(feedback, anchor = null, prefer = []) {
+export function personalRanking(feedback, anchor = null, prefer = [], profile = {}) {
   const learned = weights(feedback);
   const skipped = new Map(feedback.filter((event) => event.action === "skip").map((event) => [event.id, event]));
+  const avoidedCuts = new Map();
+  for (const event of skipped.values()) {
+    if (event.reason !== "fit") continue;
+    const style = profile.styleByKind?.[event.kind];
+    const explicit = [style?.prefer, style?.require].filter(Array.isArray).flat()
+      .map((phrase) => String(phrase).toLowerCase().replaceAll("-", " "));
+    const cuts = (avoidedCuts.get(event.kind) ?? []).concat(event.signals.map(({ value }) => value)
+      .filter((cut) => !explicit.includes(cut) && (learned.get(event.kind)?.get(`style:${cut}`)?.valueWeight ?? 0) < 0));
+    avoidedCuts.set(event.kind, cuts);
+  }
   const requestedFields = new Set(prefer.map(styleField).filter(Boolean));
   const reference = new Set((anchor?.traits ?? []).filter((trait) => !requestedFields.has(trait.field)).map(traitKey));
   return {
     allow(item) {
       if (anchor?.id === String(item.id)) return false;
+      if (listingStyleEvidence(item, avoidedCuts.get(item.kind)).length) return false;
       const event = skipped.get(String(item.id));
       return !event || (event.reason === "price" && item.price <= event.price - Math.min(2, event.price * 0.1));
     },
@@ -93,8 +108,11 @@ export function personalRanking(feedback, anchor = null, prefer = []) {
       const group = learned.get(item.kind);
       if (!group && anchor?.kind !== item.kind) return { adjustment: 0, evidence: [] };
       const evidence = [];
+      const itemTraits = traits(item);
+      const cutUnconfirmed = avoidedCuts.get(item.kind)?.length > 0 &&
+        !itemTraits.some(({ field, value }) => field === "style" && value.endsWith(" fit"));
       let preference = 0, similarity = 0;
-      for (const trait of traits(item)) {
+      for (const trait of itemTraits) {
         const key = traitKey(trait);
         const amount = group?.get(key)?.valueWeight ?? 0;
         const overridden = anchor?.kind === item.kind && requestedFields.has(trait.field);
@@ -108,7 +126,7 @@ export function personalRanking(feedback, anchor = null, prefer = []) {
         }
       }
       return { adjustment: -Math.max(-450, Math.min(600, preference + Math.min(300, similarity))),
-        evidence: evidence.slice(0, 8) };
+        evidence: evidence.slice(0, 8), cutUnconfirmed };
     },
   };
 }

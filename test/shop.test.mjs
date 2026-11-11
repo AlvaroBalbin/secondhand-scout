@@ -88,3 +88,27 @@ test("more like this can change colour while retaining exact fit, model, conditi
     id === "no-size" && questions.some((question) => question.includes("armpit to armpit"))));
   assert.ok(!near.nearMatches.some(({ id }) => ["wrong-model", "repair", "not-waxed"].includes(id)));
 });
+
+test("explicit cut feedback carries across listings and garment colours exclude the logo colour", async (t) => {
+  const shop = await shopper(t);
+  const shirt = (id, title, price) => row(id, title, price, { kind: "shirts", size: "16.5 in | 41 cm" });
+  const profile = { wants: { shirts: 1, jumpers: 1 }, budget: 55,
+    fitByKind: { shirts: { collarCm: 41 }, jumpers: { sizes: ["M", "L"] } } };
+  const slim = shirt("slim", "Hackett slim fit shirt", 5);
+  const jumper = row("blue", "Blue V-neck jumper with red pony logo", 14, {
+    brand: "Polo Ralph Lauren", description: "Blue knit with the signature red embroidered Polo pony logo on the chest.",
+  });
+  shop({ profile, listings: [slim, jumper] });
+  shop({ action: "skip", id: "slim", reason: "fit", trait: "slim fit" });
+  const { taste } = shop({ action: "save", id: "blue" });
+  const likes = taste.byKind.jumpers.likes.map(({ value }) => value);
+  assert.ok(likes.includes("blue") && likes.includes("embroidered logo"));
+  assert.ok(!likes.includes("red"));
+  const listings = [jumper, shirt("new-slim", "Hackett slim fit shirt", 4),
+    shirt("unknown", "Hackett Oxford shirt", 18)];
+  const learned = shop({ profile, listings });
+  assert.deepEqual(ids(learned).sort(), ["blue", "unknown"]);
+  assert.ok(learned.basket.items.find(({ id }) => id === "unknown").reasons.some((reason) => reason.includes("Cut is unspecified")));
+  const explicit = shop({ profile: { ...profile, styleByKind: { shirts: { require: ["slim fit"] } } }, listings });
+  assert.deepEqual(ids(explicit).sort(), ["blue", "new-slim"]);
+});

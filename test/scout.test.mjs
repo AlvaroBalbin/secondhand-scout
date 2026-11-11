@@ -4,6 +4,8 @@ import { api } from "../src/app.js";
 import {
   assessFit,
   disclosedDefects,
+  hasLogoEvidence,
+  kindMatches,
   listingStyleEvidence,
   makeResult,
   validateProfile,
@@ -27,28 +29,44 @@ const shirt = {
   kind: "shirts",
   title: "Blue Oxford shirt",
   brand: "Ralph Lauren",
-  size: "16 in | 40 cm",
+  size: "16.5 in | 41 cm",
   currency: "GBP",
   price: 10,
   fee: 1,
 };
 
-test("collar inch label takes precedence over a misleading marketplace conversion", () => {
+test("Vinted collar labels match their catalogue size and explicit conflicting measurements take precedence", () => {
   assert.equal(assessFit(shirt, profile).status, "match");
   assert.equal(
-    assessFit({ ...shirt, size: "16.5 in | 41 cm" }, profile).status,
+    assessFit({ ...shirt, size: "16 in | 40 cm" }, profile).status,
     "excluded",
   );
+  assert.equal(assessFit({ ...shirt, title: "Oxford shirt 16½" }, profile).status, "match");
+  assert.equal(assessFit({ ...shirt, description: "Collar 42 cm." }, profile).status, "excluded");
+  assert.equal(assessFit({ ...shirt, size: "L", title: "Oxford shirt, chest 41 cm" }, profile).status, "unknown");
   assert.equal(
     assessFit({ ...shirt, title: "Oxford shirt 16½", size: "41" }, profile)
       .status,
-    "excluded",
+    "match",
   );
   assert.equal(
     assessFit({ ...shirt, description: "Chest 56 cm." }, profile).status,
     "match",
   );
   assert.equal(assessFit({ ...shirt, size: "L" }, profile).status, "unknown");
+});
+
+test("listing categories and logo evidence distinguish actual garment details", () => {
+  for (const title of ["Hackett shirt", "Hackett slim fit shirt", "Oxford button-down"]) {
+    assert.equal(kindMatches({ title }, "shirts"), true, title);
+  }
+  for (const title of ["Hackett T-shirt", "Polo shirt", "Oxford short sleeve shirt"]) {
+    assert.equal(kindMatches({ title }, "shirts"), false, title);
+  }
+  assert.equal(kindMatches({ title: "Ralph Lauren V-Neck" }, "jumpers"), true);
+  assert.equal(hasLogoEvidence({ description: "No embroidered pony logo." }), false);
+  assert.equal(hasLogoEvidence({ description: "Embroidered logo on the inside label." }), false);
+  assert.equal(hasLogoEvidence({ description: "Navy embroidered polo pony logo on the chest." }), true);
 });
 
 test("children’s label is excluded even when the listing says L", () => {
@@ -72,9 +90,11 @@ test("disclosed marks, wear and missing fasteners are detected with scoped negat
     "Second-last button missing, easily fixable.",
     "Some internal bobbling and the collar is a little faded.",
     "No holes, but the zipper pull came off.",
+    "A few pulled/loose threads in places.",
   ]) assert.equal(disclosedDefects(text), true, text);
   for (const text of [
     "No signs of any damage or wear.",
+    "No obvious major stains, holes or damage visible in the supplied photographs.",
     "Free of grubby marks, yellowing or staining.",
     "No missing buttons. Marks & Spencer shirt in a faded denim wash.",
     "Fully working zip, lost weight and it is too large for me.",

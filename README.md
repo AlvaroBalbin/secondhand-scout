@@ -26,7 +26,7 @@ To try the same questions with fictional listings, run `npm run scout -- wizard 
 
 ## Shop with saved preferences
 
-Run `npm run scout -- shop` from the checkout, or `secondhand-scout shop` if you installed the package. Enter your brief and then use `save 1`, `skip 2 price` or `more 1 navy` on numbered picks. Use `taste` to see what Scout has learned. A skip can teach Scout about brand, colour, material, style or fit if the listing describes that feature. Price and condition skips apply to the individual listing.
+Run `npm run scout -- shop` from the checkout, or `secondhand-scout shop` if you installed the package. Enter your brief and then use `save 1`, `skip 2 price` or `more 1 navy` on numbered picks. Use `taste` to see what Scout has learned. A skip can teach Scout about brand, colour, material, style or fit if the listing describes that feature. A named fit skip such as `skip 2 fit slim fit` also filters other listings with that cut until you ask for it explicitly. Scout flags an unspecified cut on the suggested replacement. Price and condition skips apply to the individual listing.
 
 Scout keeps your feedback on the machine running the command in `~/.secondhand-scout/taste.json`. Set `SCOUT_TASTE_FILE` to use a different file. Feedback can change the order of picks and hide skips. It keeps your sizing and total budget in force. If a pick needs a measurement or listing detail checked, Scout may suggest a question for the seller.
 
@@ -105,7 +105,7 @@ console.log(await response.json());
 
 The response includes candidate items, fit notes, the suggested basket, seller groups, estimated costs and any missing quantities. See the [sample brief](examples/profile.json) and [listing input](examples/listings.json) for the field format. Supported clothing types are `shirts`, `jumpers`, `gilets`, `jackets`, `trousers` and `shoes`. Enter garment sizes separated by commas. For shirts, you can also enter a collar measurement in centimetres. `delivery` is the postage allowance per seller.
 
-Scout compares the listings it sees. It checks sizing and defects described in listing text. Check photos for label size, wear and authenticity. The estimate includes listed fees when available, a fee estimate otherwise and one delivery allowance per seller. Confirm the bundle and final total at checkout.
+Scout compares the listings it sees. It uses Vinted UK collar labels, where 16.5 in is listed as 41 cm, and checks the seller's wording for conflicting sizing and disclosed defects. Check photos for label size, wear and authenticity. The estimate includes listed fees when available, a fee estimate otherwise and one delivery allowance per seller. Confirm the bundle and final total at checkout.
 
 ## How Scout finds value
 

@@ -105,7 +105,7 @@ export async function shop(request, file = statePath()) {
     const feedback = request.personalise === false ? [] : state.feedback;
     const { ok, result } = await runScout(mode, { profile, listings: request.listings }, {
       personal: personalRanking(feedback, anchor,
-        anchor ? [...(request.style?.prefer ?? []), ...(request.style?.require ?? [])] : []),
+        anchor ? [...(request.style?.prefer ?? []), ...(request.style?.require ?? [])] : [], profile),
       nearMatches: true,
     });
     if (!ok) throw new Error(result.error);

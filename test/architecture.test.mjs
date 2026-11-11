@@ -75,6 +75,18 @@ test("focused queries retain broad search and stay inside the existing follow-up
   assert.deepEqual(calls, [["jacket", "relevance"], ["jacket waxed", "relevance"], ["jacket", "price_asc"]]);
 });
 
+test("41 cm catalogue searches use the Vinted 16.5 inch label for both brands", async () => {
+  const profile = validateProfile({ wants: { shirts: 2 }, collar: 41,
+    brands: "Ralph Lauren, Hackett", budget: 80 });
+  const queries = [];
+  const client = { pageGet: async (_country, path) => {
+    queries.push(new URL(path, "https://www.vinted.co.uk").searchParams.get("search_text"));
+    return { items: [], pagination: {} };
+  } };
+  await discover(profile, { client, extraSearches: false });
+  assert.deepEqual(queries, ["Ralph Lauren shirt 16.5", "Hackett shirt 16.5"]);
+});
+
 test("seller wardrobe fills a missing type and one parcel covers both items", async () => {
   const profile = validateProfile({ wants: { shirts: 1, jumpers: 1 }, sizes: "L", budget: 30, delivery: 5 });
   const page = (id, title, sellerId, amount) => ({

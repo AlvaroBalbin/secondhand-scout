@@ -1,7 +1,7 @@
 // Reuse the maintained parser and operations from the repo tested in the shopping chat.
 import { searchItems, getSeller, getSellerItems } from "../vendor/vinted-client/endpoints.js";
 import { SORT_VALUE } from "../vendor/vinted-client/types.js";
-import { conditionTier, eligible, InputError, planBasket, rankItems } from "./engine.js";
+import { collarSearchInches, conditionTier, eligible, InputError, planBasket, rankItems } from "./engine.js";
 
 export class ProviderError extends Error {
   constructor(message) {
@@ -250,10 +250,7 @@ export async function discover(
           ? want.kind
           : want.kind.replace(/s$/, "");
       const collarCm = profile.fitByKind[want.kind].collarCm;
-      const collar =
-        collarCm !== null
-          ? String(Math.round((collarCm / 2.54) * 2) / 2)
-          : "";
+      const collar = collarCm === null ? "" : String(collarSearchInches(collarCm));
       const query = [brand, kind, collar].filter(Boolean).join(" ");
       searches.push({ want, query, fits: 0 });
     }
