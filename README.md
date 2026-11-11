@@ -8,7 +8,7 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 Use Secondhand Scout to find me deals on Vinted UK. Follow https://github.com/AlvaroBalbin/secondhand-scout/blob/main/AGENT-QUICKSTART.md, ask me in one message for whatever you need, then run the search and show me the best links and estimated cost including delivery.
 ```
 
-Use a chat that can run terminal commands, such as Codex or Claude Code, or one that already has Secondhand Scout connected. For a first search, the agent can run Scout directly from the repository with Git and Node.js 22 or newer. [Agent quickstart](AGENT-QUICKSTART.md)
+Use a chat that can run terminal commands, such as Codex or Claude Code, or one that already has Secondhand Scout connected. For a first search, the agent can run Scout directly from the repository with Git and Node.js 22 or newer. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
 
 ## Try it
 
