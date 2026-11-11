@@ -92,23 +92,33 @@ async function feedbackTurn(state, request, file) {
     }
   }
   const basket = followUp?.basket ?? followUp?.leaveOpen ?? fallback();
-  const alternatives = followUp?.options?.map(({ item }) => item) ?? [];
+  const alternatives = [
+    ...(followUp?.options ?? []).map(({ item }) => item),
+    ...(state.last.alternatives ?? []).filter((item) => personal.allow(item)),
+  ];
   updateShortlist(state, basket.items, alternatives);
   if (followUp?.replacement)
     state.last.replacementSlots = { ...state.last.replacementSlots, [focus.id]: followUp.replacement.item.id };
   await store(file, state);
   return { action: "feedback", applied: events.map(({ id, action, reason }) => ({ id, action, reason })),
     previous: { items: previous, cost: calculateCosts(previous, profile) },
-    basket, followUp, picks: numbered(state), taste: describeTaste(state.feedback) };
+    basket, followUp, alternatives: state.last.alternatives, picks: numbered(state), taste: describeTaste(state.feedback) };
 }
 
 function updateShortlist(state, basket, alternatives = [], demo = false) {
   const recent = new Map();
-  for (const item of [...basket, ...alternatives]) {
+  const seen = new Set(basket.map(({ id }) => id));
+  const available = alternatives.filter(({ id }) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  }).slice(0, 6);
+  for (const item of [...basket, ...available]) {
     const id = String(item.id);
     if (!recent.has(id)) recent.set(id, { ...listingMemory(item), demo });
   }
   state.last.basket = basket;
+  state.last.alternatives = available;
   state.last.numbers = [...recent.keys()];
   for (const item of state.recent) if (!recent.has(item.id)) recent.set(item.id, item);
   state.recent = [...recent.values()].slice(0, 80);
@@ -197,7 +207,7 @@ export async function shop(request, file = statePath()) {
     updateShortlist(state, result.basket.items, alternatives, mode === "demo");
     await store(file, state);
     return { action, profile: result.profile, basket: result.basket, nearMatches: result.nearMatches,
-      alternatives, picks: numbered(state), meta: result.meta, taste: describeTaste(state.feedback) };
+      alternatives: state.last.alternatives, picks: numbered(state), meta: result.meta, taste: describeTaste(state.feedback) };
   } finally {
     await lock.close();
     await unlink(`${file}.lock`);

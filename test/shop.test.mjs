@@ -123,6 +123,8 @@ test("one agent feedback call saves choices and automatically replaces the skipp
     row("blue", "Blue V-neck jumper", 10), row("navy", "Navy V-neck jumper", 24),
   ] });
   const number = (id) => first.picks.find((pick) => pick.id === id).number;
+  const saveOnly = shop({ action: "feedback", changes: [{ action: "save", number: number("pink") }] });
+  assert.deepEqual(saveOnly.picks, first.picks);
   const after = shop({ action: "feedback", changes: [
     { action: "save", number: number("pink") }, { action: "save", number: number("blue") },
     { action: "skip", number: number("slim"), reason: "fit", trait: "slim fit" },
