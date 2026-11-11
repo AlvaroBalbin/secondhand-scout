@@ -5,7 +5,7 @@ Rank secondhand clothing by your sizes, preferred brands and total budget. Scout
 ## Paste this into an agent chat
 
 ```text
-Use Secondhand Scout to find me deals on Vinted UK. Follow https://github.com/AlvaroBalbin/secondhand-scout/blob/main/AGENT-QUICKSTART.md, ask me in one message for whatever you need, then run the search and show me the best links and estimated cost including delivery.
+Use Secondhand Scout for Vinted UK. Ask me in one message for items and quantities, sizes and total budget including delivery. Use Scout if connected. Otherwise clone https://github.com/AlvaroBalbin/secondhand-scout.git and run `node scripts/scout.mjs search --stdin --json` with a JSON request shaped like `{"profile":{"wants":{"jumpers":1},"sizes":"L","budget":50}}`, using my answers. Show listing links and estimated delivered prices. If live search is blocked, give me prefilled Vinted UK search links.
 ```
 
 Use a chat that can run terminal commands, such as Codex or Claude Code, or one that already has Secondhand Scout connected. For a first search, the agent can run Scout directly from the repository with Git and Node.js 22 or newer. If live access is blocked, the agent can give you prefilled Vinted searches to open. [Agent quickstart](AGENT-QUICKSTART.md)
