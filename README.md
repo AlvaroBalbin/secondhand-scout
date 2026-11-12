@@ -166,7 +166,7 @@ Run `node scripts/feed.mjs watch work/feed-state.json` to poll the authorised HT
 
 ## Hosted search API
 
-Run `node scripts/dev.mjs --hosted` or build the included Dockerfile. Set `SCOUT_FEED_FILE` to a synced state file and expose the service over HTTPS. `PORT` defaults to 4317. Set `SCOUT_SEARCH_TOKEN` for bearer authentication when sharing privately. `GET /v1/health` checks the process and `POST /v1/search` accepts the same brief as the local search API, with optional `"depth":"deep"`. Hosted search is read-only, returns the feed observation time, and fails when the feed is stale or missing.
+Run `node scripts/dev.mjs --hosted` or build the included Dockerfile. Set `SCOUT_FEED_FILE` for a synced feed or `SCOUT_HOSTED_LIVE=1` to use Scout's existing UK catalogue search. If you configure a feed, Scout uses it and reports a stale or unavailable feed as an error. Expose the service over HTTPS. `PORT` defaults to 4317. Set `SCOUT_SEARCH_TOKEN` for bearer authentication when sharing privately. `GET /v1/health` checks the process and `POST /v1/search` accepts the same brief as the local search API, with optional `"depth":"deep"`. The service is read-only.
 
 Once you have a hosted URL, paste this into a terminal-capable agent chat.
 

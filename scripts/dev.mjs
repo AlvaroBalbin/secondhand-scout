@@ -4,8 +4,8 @@ import { api } from "../src/app.js";
 const hosted = process.argv.includes("--hosted");
 const host = process.env.SCOUT_HOST ?? (hosted ? "0.0.0.0" : "127.0.0.1");
 const port = Number(process.env.PORT ?? 4317);
-if (hosted && !process.env.SCOUT_FEED_FILE) {
-  console.error("Hosted search requires SCOUT_FEED_FILE.");
+if (hosted && !process.env.SCOUT_FEED_FILE && process.env.SCOUT_HOSTED_LIVE !== "1") {
+  console.error("Hosted search requires SCOUT_FEED_FILE or SCOUT_HOSTED_LIVE=1.");
   process.exit(1);
 }
 const reply = (outgoing, status, error) => {
