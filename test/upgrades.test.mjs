@@ -91,6 +91,10 @@ test("hosted HTTP search reads fresh feed, enforces token and fails closed on st
     "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}),
   }, body: JSON.stringify({ profile: { wants: { jumpers: 1 }, sizes: "L", budget: 50 }, depth: "deep" }) });
   assert.equal((await search()).status, 401);
+  const guide = await fetch(endpoint + "/start");
+  assert.equal(guide.status, 200);
+  assert.match(guide.headers.get("content-type"), /^text\/plain/);
+  assert.match(await guide.text(), /POST \/v1\/search/);
   assert.equal((await fetch(endpoint + "/api/demo")).status, 404);
   const response = await search("test-token");
   assert.equal(response.status, 200);

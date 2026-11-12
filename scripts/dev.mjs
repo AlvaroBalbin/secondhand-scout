@@ -12,10 +12,31 @@ const reply = (outgoing, status, error) => {
   outgoing.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
   outgoing.end(JSON.stringify({ error }));
 };
+const quickstart = `Secondhand Scout for Vinted UK
+
+Ask the shopper for any missing items, quantities, sizes and total budget including delivery. Ask together in one message. Then call Scout yourself using your HTTP or terminal tool. No installation or account is required.
+
+POST /v1/search on the same HTTPS origin as this guide. Send Content-Type: application/json and allow up to 120 seconds.
+Example body: {"profile":{"wants":{"jumpers":1},"brands":"Hackett","sizes":"L","department":"men","budget":50}}
+
+Use the shopper's actual brief. Supported keys in wants are shirts, jumpers, gilets, jackets, trousers and shoes. Supply sizes as a comma-separated string, budget in GBP, collar in centimetres for shirts if given, and style preferences in brief. Include department and brands when provided.
+
+Use the basket and candidates from the response to show numbered Vinted links, fit evidence and estimated delivered prices. Mention any missing items or unverified fit. If the API is temporarily busy, retry once after 15 seconds. Report other errors rather than inventing listings.
+`;
 const server = createServer(async (incoming, outgoing) => {
   try {
     const url = new URL(incoming.url, `http://${host}:${server.address().port}`);
     if (hosted) {
+      if (url.pathname === "/start") {
+        if (incoming.method !== "GET" && incoming.method !== "HEAD")
+          return reply(outgoing, 405, "Use GET.");
+        outgoing.writeHead(200, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        return outgoing.end(incoming.method === "GET" ? quickstart : undefined);
+      }
       if (!["/v1/search", "/v1/health"].includes(url.pathname))
         return reply(outgoing, 404, "Not found.");
       const token = process.env.SCOUT_SEARCH_TOKEN;
