@@ -1,8 +1,16 @@
 # Secondhand Scout
 
+## Paste this into an agent chat
+
+```text
+Be my Vinted UK deal scout using https://secondhand-scout-production.up.railway.app/start
+```
+
+Use a chat with HTTP or terminal access, such as Codex or Claude Code. Tell Scout what you're looking for, your sizes and your total budget including delivery. Your chat may ask to connect to Scout.
+
 Rank secondhand clothing by your sizes, preferred brands and total budget. Scout explains each pick and groups items from the same seller so you can consider a bundle.
 
-## Paste this into an agent chat
+## Run Scout from a local checkout
 
 ```text
 Be my Secondhand Scout for Vinted UK. Find the Secondhand Scout checkout in this workspace or clone https://github.com/AlvaroBalbin/secondhand-scout.git here, read AGENT-QUICKSTART.md, and run the shopping commands yourself. Ask me for any missing shopping details in one message. Show numbered picks and delivered estimates. When I say save, skip, or more like this, carry my choices forward and show what changed.
