@@ -86,11 +86,14 @@ test("seller trouser dimensions, UK shoe sizing and measured jacket near matches
   assert.equal(assessFit({ kind: "shoes", title: "Loake loafers UK 9", size: "9" }, shoes).status, "match");
   assert.equal(assessFit({ kind: "shoes", title: "Loake loafers UK 8 US 9", size: "9" }, shoes).status, "excluded");
   const jackets = validateProfile({ wants: { jackets: 1 }, budget: 180, clean: false,
-    fitByKind: { jackets: { pitToPitCm: [56, 58] } }, styleByKind: { jackets: { require: ["wax"] } } });
+    fitByKind: { jackets: { pitToPitCm: [56, 58] } }, styleByKind: { jackets: { require: ["Beaufort", "wax"] } } });
   const jacket = { id: "example", kind: "jackets", title: "Waxed Beaufort jacket", currency: "GBP",
     available: true, price: 80, fee: 4.7, description: 'Pit to pit: 23". Sleeves shortened. The hanging hook has broken.' };
-  const result = makeResult([jacket], jackets, {}, [], { nearMatches: true });
+  const wrongModel = { ...jacket, id: "royston", brand: "Barbour", title: "Barbour Royston wax jacket",
+    description: 'Pit to pit: 23". See our other listing for a Beaufort.' };
+  const result = makeResult([jacket, wrongModel], jackets, {}, [], { nearMatches: true });
   assert.equal(result.basket.items.length, 0);
+  assert.deepEqual(result.nearMatches.map(({ id }) => id), ["example"]);
   assert.match(result.nearMatches[0].fit.note, /58\.42 cm/);
   assert.equal(result.nearMatches[0].estimatedDelivered, 89.2);
   assert.deepEqual(result.nearMatches[0].disclosures.map(({ type }) => type), ["alteration", "damage"]);

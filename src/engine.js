@@ -417,10 +417,12 @@ function styleRequirements(item, p) {
   const style = p.styleByKind?.[item.kind];
   const required = style?.require ?? [];
   const evidenced = new Set(listingStyleEvidence(item, required).map(({ term }) => term));
-  const barbourModels = ["beaufort", "bedale", "border"];
+  const barbourModels = ["beaufort", "bedale", "border", "royston", "eskdale", "ashby", "beadnell", "corbridge", "sapper"];
   const model = required.find((term) => barbourModels.includes(term));
-  const wrongModel = model && !evidenced.has(model) && norm(item.brand).includes("barbour") &&
-    listingStyleEvidence(item, barbourModels.filter((term) => term !== model)).length > 0;
+  const titleOnly = { title: item.title };
+  const wrongModel = model && norm(item.brand).includes("barbour") &&
+    !listingStyleEvidence(titleOnly, [model]).length &&
+    listingStyleEvidence(titleOnly, barbourModels.filter((term) => term !== model)).length > 0;
   return {
     missing: required.filter((term) => !evidenced.has(term)),
     excluded: Boolean(wrongModel) || listingStyleEvidence(item, style?.avoid).length > 0 || required.some((term) => {
