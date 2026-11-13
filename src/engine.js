@@ -457,7 +457,9 @@ export function eligible(item, p, { preview = false } = {}) {
   if (p.clean && disclosedDefects(`${item.title} ${item.description || ""}`))
     return false;
   const style = styleRequirements(item, p);
-  if (style.excluded || (!preview && style.missing.length)) return false;
+  if (style.excluded || (!preview && style.missing.length) ||
+      (preview && item.kind === "jackets" && p.fitByKind.jackets?.pitToPitCm && item.description && style.missing.length))
+    return false;
   const f = assessFit(item, p);
   return f.status !== "excluded" && (preview || f.status === "match" || (!p.strictFit && f.status === "unknown"));
 }
