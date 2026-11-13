@@ -37,6 +37,10 @@ export async function api(request, rankingOptions = {}) {
       throw new InputError("The shopping brief could not be read.");
     }
     const profile = validateProfile(body?.profile);
+    const personalized = rankingOptions.personal || rankingOptions.nearMatches;
+    if (path === "/api/search" && profile.fitByKind.jackets?.pitToPitCm) {
+      rankingOptions = { ...rankingOptions, nearMatches: true };
+    }
     const deep = body.depth === "deep";
     if (path === "/api/demo")
       return json(
@@ -68,8 +72,7 @@ export async function api(request, rankingOptions = {}) {
       }
     }
     const key = JSON.stringify({ path, profile, links: body.links, deep });
-    const personalised = rankingOptions.personal || rankingOptions.nearMatches;
-    const hit = personalised ? null : cache.get(key);
+    const hit = personalized ? null : cache.get(key);
     if (hit && Date.now() - hit.time < 300000)
       return json({
         ...hit.result,
@@ -91,7 +94,7 @@ export async function api(request, rankingOptions = {}) {
           ? await importListings(profile, body.links)
           : await discover(profile, { preview: rankingOptions.nearMatches, deep, excludeIds: rankingOptions.excludeIds });
       const result = makeResult(found.items, profile, found.meta, found.comparables, rankingOptions);
-      if (!personalised) {
+      if (!personalized) {
         if (cache.size >= 20) cache.delete(cache.keys().next().value);
         cache.set(key, { time: Date.now(), result });
       }

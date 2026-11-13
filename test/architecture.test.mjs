@@ -75,6 +75,27 @@ test("focused queries retain broad search and stay inside the existing follow-up
   assert.deepEqual(calls, [["jacket", "relevance"], ["jacket waxed", "relevance"], ["jacket", "price_asc"]]);
 });
 
+test("seller trouser dimensions, UK shoe sizing and measured jacket near matches", () => {
+  const trousers = validateProfile({ wants: { trousers: 1 }, budget: 45,
+    fitByKind: { trousers: { waistIn: 34, inseamIn: 30 } } });
+  const pair = { kind: "trousers", title: "Chinos W34 L30", size: "W34" };
+  assert.equal(assessFit(pair, trousers).status, "match");
+  assert.equal(assessFit({ ...pair, description: 'Inside Leg Length - 32"' }, trousers).status, "excluded");
+  assert.equal(assessFit({ ...pair, title: "Chinos", description: "34’’ waist and 30’’ length" }, trousers).status, "match");
+  const shoes = validateProfile({ wants: { shoes: 1 }, sizes: "UK 9", budget: 80 });
+  assert.equal(assessFit({ kind: "shoes", title: "Loake loafers UK 9", size: "9" }, shoes).status, "match");
+  assert.equal(assessFit({ kind: "shoes", title: "Loake loafers UK 8 US 9", size: "9" }, shoes).status, "excluded");
+  const jackets = validateProfile({ wants: { jackets: 1 }, budget: 180, clean: false,
+    fitByKind: { jackets: { pitToPitCm: [56, 58] } }, styleByKind: { jackets: { require: ["wax"] } } });
+  const jacket = { id: "example", kind: "jackets", title: "Waxed Beaufort jacket", currency: "GBP",
+    available: true, price: 80, fee: 4.7, description: 'Pit to pit: 23". Sleeves shortened. The hanging hook has broken.' };
+  const result = makeResult([jacket], jackets, {}, [], { nearMatches: true });
+  assert.equal(result.basket.items.length, 0);
+  assert.match(result.nearMatches[0].fit.note, /58\.42 cm/);
+  assert.equal(result.nearMatches[0].estimatedDelivered, 89.2);
+  assert.deepEqual(result.nearMatches[0].disclosures.map(({ type }) => type), ["alteration", "damage"]);
+});
+
 test("41 cm catalogue searches use the Vinted 16.5 inch label for both brands", async () => {
   const profile = validateProfile({ wants: { shirts: 2 }, collar: 41,
     brands: "Ralph Lauren, Hackett", budget: 80 });

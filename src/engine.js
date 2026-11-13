@@ -164,8 +164,8 @@ export function kindMatches(item, kind) {
   if (kind === "gilets")
     return /gilet|gillet|body.?warmer|vest|waistcoat/.test(t);
   if (kind === "jackets") return /jacket|coat|blazer|parka/.test(t);
-  if (kind === "trousers") return /trousers|chinos|jeans|pants/.test(t);
-  return /shoes|loafers|boots|trainers|sneakers|brogues/.test(t);
+  if (kind === "trousers") return /trousers|chinos|jeans|pants/.test(t) && !/\bshorts\b/.test(t);
+  return /shoes|loafers?|boots|trainers|sneakers|brogues/.test(t);
 }
 
 export function collarFromText(text) {
@@ -226,8 +226,11 @@ function collarEvidence(item) {
 function measured(item, key, field) {
   const supplied = item.measurements?.[key];
   if (Number.isFinite(supplied) && supplied >= field.min && supplied <= field.max) return supplied;
-  const pattern = new RegExp(`\\b(?:${field.phrase})\\s*(?:measures?\\s*)?[:=~-]?\\s*(\\d{1,3}(?:[.,]\\d+)?)\\s*(cm\\b|inches\\b|inch\\b|in\\b|["”])`, "i");
-  const match = norm(item.description).match(pattern);
+  const phrase = key === "inseamIn" ? "inseam|inside leg(?: length)?" : key === "waistIn" ? "waist(?: size)?" : field.phrase;
+  const pattern = new RegExp(`\\b(?:${phrase})\\s*(?:measures?\\s*)?[:=~–-]?\\s*(\\d{1,3}(?:[.,]\\d+)?)\\s*(cm\\b|inches?\\b|in\\b|["”″]|'')`, "i");
+  const description = String(item.description ?? "").replace(/[’′]/g, "'");
+  const title = String(item.title ?? "").replace(/[’′]/g, "'");
+  const match = description.match(pattern) ?? title.match(pattern);
   if (match) {
     const value = Number(match[1].replace(",", "."));
     const isCm = match[2].toLowerCase() === "cm";
@@ -235,6 +238,14 @@ function measured(item, key, field) {
     return result >= field.min && result <= field.max ? round(result) : null;
   }
   if (key === "pitToPitCm") return null;
+  for (const part of [description, title]) {
+    const pair = part.match(/\bw\s*(\d{2})\s*(?:[x×/]\s*)?l\s*(\d{2})\b/i) ??
+      part.match(/\b(\d{2})\s*(?:["”″]|'')\s*waist\s*(?:and|[x×,])\s*(\d{2})\s*(?:["”″]|'')\s*(?:inside leg|length|inseam)\b/i);
+    if (pair) {
+      const value = Number(pair[key === "waistIn" ? 1 : 2]);
+      if (value >= field.min && value <= field.max) return value;
+    }
+  }
   const size = norm(item.size);
   const combined = size.match(/\bw\s*(\d{2})\s*l\s*(\d{2})\b/);
   const standalone = size.match(key === "waistIn" ? /\bw\s*(\d{2})\b/ : /\bl\s*(\d{2})\b/);
@@ -286,9 +297,12 @@ export function assessFit(item, p) {
     if (!spec[key]) continue;
     const value = measured(item, key, field);
     const [min, max] = spec[key];
-    const matches = value !== null && value >= min - 0.5 && value <= max + 0.5;
+    const margin = item.kind === "jackets" ? 0 : 0.5;
+    const matches = value !== null && value >= min - margin && value <= max + margin;
+    const close = !matches && value !== null && item.kind === "jackets" && key === "pitToPitCm" &&
+      value >= min - 2 && value <= max + 2;
     checks.push({
-      status: value === null ? "unknown" : matches ? "match" : "excluded",
+      status: value === null ? "unknown" : matches ? "match" : close ? "near" : "excluded",
       note: value === null ? `${field.label} missing. Ask the seller for it.` :
         `${field.label} evidence is ${value} ${field.unit}${matches ? "." : ", outside your range."}`,
       ...(value === null ? { question: key === "pitToPitCm"
@@ -297,6 +311,7 @@ export function assessFit(item, p) {
     });
   }
   const status = checks.some((c) => c.status === "excluded") ? "excluded" :
+    checks.some((c) => c.status === "near") ? "near" :
     checks.length && checks.every((c) => c.status === "match") ? "match" : "unknown";
   return { status, note: checks.map((c) => c.note).join(" ") || "Size is not confirmed for your brief.", checks };
 }
@@ -321,6 +336,16 @@ function sizeToken(value) {
 }
 
 function checkListedSize(item, wanted) {
+  if (item.kind === "shoes") {
+    const sellerText = `${item.title ?? ""} ${item.description ?? ""}`;
+    const uk = [...new Set([...sellerText.matchAll(/\buk\s*(?:size\s*)?(\d{1,2}(?:\.5)?)(?![\d.])/gi)].map((match) => match[1]))];
+    const expectedUK = wanted.map((value) => value.match(/^(?:UK\s*)?(\d{1,2}(?:\.5)?)$/i)?.[1])
+      .filter((value) => value && Number(value) <= 20);
+    if (uk.length && expectedUK.length) {
+      const status = uk.length > 1 ? "unknown" : expectedUK.includes(uk[0]) ? "match" : "excluded";
+      return { status, note: uk.length > 1 ? "Seller gives conflicting UK shoe sizes." : `Seller lists UK ${uk[0]}.` };
+    }
+  }
   const text = [norm(item.description), norm(item.title)];
   const size = String(item.size || "").trim();
   const listed = [sizeToken(size), ...size.split(/[^A-Z0-9.]+/i).map(sizeToken)].filter(Boolean);
@@ -349,7 +374,7 @@ function checkListedSize(item, wanted) {
   };
 }
 
-const FASTENER = "(?:zip(?:per)?s?|buttons?|press[ -]studs?|poppers?)";
+const FASTENER = "(?:zip(?:per)?s?|buttons?|press[ -]studs?|poppers?|hanging (?:hooks?|loops?))";
 const DAMAGE_WORD = "(?:holes?|stains?|staining|rips?|tears?|damage[d]?|fray(?:ed|ing)?|discolou?r(?:ation|ed|ing)|yellowing|bobbl(?:es?|ing)|pilling|fad(?:ed|ing))";
 const NEGATED_ISSUE = `(?:${DAMAGE_WORD}|marks?|wear|flaws?|(?:missing|broken|lost)\\s+${FASTENER}|${FASTENER}\\s+(?:missing|broken|lost))`;
 const NEGATED_LIST = new RegExp(
@@ -370,6 +395,22 @@ export function disclosedDefects(text) {
   return DAMAGE.test(remaining) || FASTENER_DAMAGE.test(remaining) ||
     /\b(?:pulled(?:\s*\/\s*loose)?|loose)\s+threads?\b/.test(remaining) ||
     MARK_DISCLOSURE.test(remaining) || /\bneeds?\s+(?:a\s+)?(?:repair|fix|replacement)\b/.test(remaining);
+}
+
+function listingDisclosures(item) {
+  const clauses = `${item.title ?? ""}\n${item.description ?? ""}`.split(/\n|[!?]|\.(?=\s|[a-z])/i);
+  return clauses.flatMap((clause) => {
+    const text = clause.trim();
+    const alteration = /\b(?:shortened|adjusted to be short(?:er)?|taken (?:in|up)|let out|rehemmed|re-hemmed|altered|tailored to (?:fit|size))\b/i.test(text) &&
+      !/\b(?:no|never|not)\s+(?:been\s+)?(?:altered|shortened|taken)|\b(?:can|could) be (?:altered|shortened)/i.test(text);
+    const damage = disclosedDefects(text) || /\b(?:previously repaired|has been repaired|visible wax wear)\b/i.test(text);
+    return [...(alteration ? [{ type: "alteration", text: text.slice(0, 200) }] : []),
+      ...(damage ? [{ type: "damage", text: text.slice(0, 200) }] : [])];
+  }).slice(0, 5);
+}
+
+function listingPriceNotes(item, profile) {
+  return { estimatedDelivered: calculateCosts([item], profile).total, disclosures: listingDisclosures(item) };
 }
 
 function styleRequirements(item, p) {
@@ -418,7 +459,7 @@ export function eligible(item, p, { preview = false } = {}) {
   const style = styleRequirements(item, p);
   if (style.excluded || (!preview && style.missing.length)) return false;
   const f = assessFit(item, p);
-  return f.status !== "excluded" && (preview || !p.strictFit || f.status === "match");
+  return f.status !== "excluded" && (preview || f.status === "match" || (!p.strictFit && f.status === "unknown"));
 }
 
 function median(a) {
@@ -521,7 +562,8 @@ function comparePrice(item, groups, source) {
 export function listingStyleEvidence(item, preferences = []) {
   return preferences.flatMap((term) => {
     if (typeof term !== "string" || !STYLE_PHRASE.test(term)) return [];
-    const phrase = term.split(/[ -]+/).join("[\\s-]+");
+    const variants = { wax: "wax(?:ed)?", waxed: "wax(?:ed)?", chinos: "chinos?", loafers: "loafers?" };
+    const phrase = variants[term.toLowerCase()] ?? term.split(/[ -]+/).join("[\\s-]+");
     const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${phrase}(?![\\p{L}\\p{N}])`, "giu");
     for (const field of ["title", "description"]) {
       const value = String(item[field] ?? "");
@@ -583,7 +625,7 @@ export function rankItems(items, p, { comparables = items, source = "supplied_li
       const adjustment = (wearAllowance[conditionTier(item.condition)] ?? 100) -
         Math.min(400, styleEvidence.length * 200) - (p.logos && logo ? 200 : 0) - discountCredit +
         (taste?.adjustment ?? 0);
-      return { ...item, fit, reasons, benchmark: deal?.medianItemPrice ?? null, deal, styleEvidence,
+      return { ...item, fit, reasons, ...listingPriceNotes(item, p), benchmark: deal?.medianItemPrice ?? null, deal, styleEvidence,
         ...(taste?.evidence.length ? { tasteEvidence: taste.evidence } : {}), adjustment };
     })
     .sort((a, b) => Number(b.fit.status === "match") - Number(a.fit.status === "match") ||
@@ -705,8 +747,11 @@ export function makeResult(items, p, meta = {}, comparables = items, { personal,
     if (fit.status === "unknown" && !questions.length) questions.push(fit.note);
     const missingStyle = styleRequirements(item, p).missing;
     if (missingStyle.length) questions.push(`Could you confirm these details: ${missingStyle.join(", ")}?`);
-    return [{ id: item.id, title: item.title, kind: item.kind, url: item.url, estimatedDelivered: total, questions }];
-  }).sort((a, b) => a.questions.length - b.questions.length || a.estimatedDelivered - b.estimatedDelivered).slice(0, 3) : [];
+    return [{ id: item.id, title: item.title, kind: item.kind, url: item.url, fit,
+      ...listingPriceNotes(item, p), questions }];
+  }).sort((a, b) => a.questions.length - b.questions.length ||
+    Number(b.fit.status === "near") - Number(a.fit.status === "near") ||
+    a.estimatedDelivered - b.estimatedDelivered).slice(0, 3) : [];
   return {
     profile: p,
     items: ranked.slice(0, 48).map(({ adjustment, ...i }) => i),

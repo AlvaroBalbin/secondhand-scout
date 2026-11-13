@@ -1,7 +1,7 @@
 // Reuse the maintained parser and operations from the repo tested in the shopping chat.
 import { searchItems, getSeller, getSellerItems } from "../vendor/vinted-client/endpoints.js";
 import { SORT_VALUE } from "../vendor/vinted-client/types.js";
-import { collarSearchInches, conditionTier, eligible, InputError, planBasket, rankItems } from "./engine.js";
+import { assessFit, collarSearchInches, conditionTier, eligible, InputError, planBasket, rankItems } from "./engine.js";
 
 export class ProviderError extends Error {
   constructor(message) {
@@ -254,7 +254,18 @@ export async function discover(
       const collarCm = profile.fitByKind[want.kind].collarCm;
       const collar = collarCm === null ? "" : String(collarSearchInches(collarCm));
       const query = [brand, kind, collar].filter(Boolean).join(" ");
-      searches.push({ want, query, brand, collar, fits: 0 });
+      const fit = profile.fitByKind[want.kind];
+      const style = profile.styleByKind?.[want.kind]?.search;
+      const shoeSize = fit.sizes.find((size) => /^UK\s*\d/.test(size)) ??
+        fit.sizes.find((size) => /^\d{1,2}(?:\.5)?$/.test(size) && Number(size) <= 20);
+      const trouserSize = fit.waistIn && fit.inseamIn &&
+        fit.waistIn[0] === fit.waistIn[1] && fit.inseamIn[0] === fit.inseamIn[1]
+        ? `W${fit.waistIn[0]} L${fit.inseamIn[0]}` : "";
+      const targeted = want.kind === "shoes" && style
+        ? [brand, style, shoeSize].filter(Boolean).join(" ")
+        : want.kind === "trousers" && trouserSize
+          ? [brand, style || kind, trouserSize].filter(Boolean).join(" ") : null;
+      searches.push({ want, query, targeted, brand, collar, fits: 0 });
     }
   }
   async function search(entry, order) {
@@ -266,7 +277,7 @@ export async function discover(
         query,
         country: "uk",
         categoryId:
-          profile.department === "men"
+          want.kind === "shoes" ? undefined : profile.department === "men"
             ? 2050
             : profile.department === "women"
               ? 1904
@@ -289,7 +300,7 @@ export async function discover(
       warnings.push(`${query}: ${error.message}`);
     }
   }
-  for (const query of searches) await search(query, "relevance");
+  for (const entry of searches) await search(entry.targeted ? { ...entry, query: entry.targeted } : entry, "relevance");
   if (extraSearches) {
     const gaps = [...searches].sort((a, b) => a.fits / a.want.qty - b.fits / b.want.qty);
     const styledKinds = new Set();
@@ -299,7 +310,14 @@ export async function discover(
       const phrase = profile.styleByKind?.[kind]?.search;
       if (!phrase || styledKinds.has(kind)) continue;
       styledKinds.add(kind);
-      focused.push({ entry: { ...entry, query: `${entry.query} ${phrase}` }, order: "relevance" });
+      const query = entry.targeted
+        ? entry.want.kind === "shoes" ? [entry.brand, phrase].filter(Boolean).join(" ") :
+          entry.targeted.replace(/\bW(\d+) L(\d+)$/, "$1 $2")
+        : entry.want.kind === "jackets" && profile.fitByKind.jackets.pitToPitCm
+          ? [entry.brand, phrase.replace(/\bwax(?:ed)?\b/i, "").trim(), "pit to pit",
+            String(Math.round(profile.fitByKind.jackets.pitToPitCm[1] / 2.54))].filter(Boolean).join(" ")
+          : `${entry.query} ${phrase}`;
+      focused.push({ entry: { ...entry, query }, order: entry.want.kind === "trousers" ? "price_low_to_high" : "relevance" });
     }
     const alternativeNames = { shirts: "button down shirt", jumpers: "knit sweater",
       gilets: "body warmer", jackets: "coat", trousers: "chinos", shoes: "loafers" };
@@ -435,7 +453,9 @@ export async function discover(
   const enriched = [...refreshed.values()].filter(Boolean).concat(wardrobeListings);
   const qualified = enriched.filter((item) => eligible(item, profile));
   const toVerify = preview ? qualified.concat(enriched.filter((item) =>
-    !eligible(item, profile) && eligible(item, profile, { preview: true })).slice(0, 6)) : qualified;
+    !eligible(item, profile) && eligible(item, profile, { preview: true }))
+    .sort((a, b) => Number(assessFit(b, profile).status === "near") -
+      Number(assessFit(a, profile).status === "near")).slice(0, 6)) : qualified;
   const sellers = new Map();
   for (const item of toVerify) {
     if (!item.sellerId) continue;

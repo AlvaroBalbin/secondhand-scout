@@ -19,9 +19,9 @@ Ask the shopper for any missing items, quantities, sizes and total budget includ
 POST /v1/search on the same HTTPS origin as this guide. Send Content-Type: application/json and allow up to 120 seconds.
 Example body: {"profile":{"wants":{"jumpers":1},"brands":"Hackett","sizes":"L","department":"men","budget":50}}
 
-Use the shopper's actual brief. Supported keys in wants are shirts, jumpers, gilets, jackets, trousers and shoes. Supply sizes as a comma-separated string, budget in GBP, collar in centimetres for shirts if given, and style preferences in brief. Include department and brands when provided.
+Use the shopper's actual brief. Supported keys in wants are shirts, jumpers, gilets, jackets, trousers and shoes. Supply sizes as a comma-separated string, budget in GBP and collar in centimetres for shirts if given. Include department and brands when provided. Put garment measurements in fitByKind, for example {"trousers":{"waistIn":34,"inseamIn":30},"jackets":{"pitToPitCm":[56,58]}}. Put style filters in styleByKind, for example {"shoes":{"search":"suede loafers","require":["suede","loafers"]}}.
 
-Use the basket and candidates from the response to show numbered Vinted links, fit evidence and estimated delivered prices. Mention any missing items or unverified fit. If the API is temporarily busy, retry once after 15 seconds. Report other errors rather than inventing listings.
+Use the basket and candidates from the response to show numbered Vinted links, fit evidence and estimated delivered prices. Put each item's disclosures about alterations or damage next to its price. If nearMatches are returned, show them separately with the measurement difference or the seller question. Mention any missing items or unverified fit. If the API is temporarily busy, retry once after 15 seconds. Report other errors rather than inventing listings.
 `;
 const server = createServer(async (incoming, outgoing) => {
   try {
