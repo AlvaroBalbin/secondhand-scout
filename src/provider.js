@@ -237,7 +237,7 @@ export async function readListing(client, reference, kind) {
 export async function discover(
   profile,
   { client = new PublicVintedTransport(), onProgress = () => {}, expandWardrobes = true,
-    extraSearches = true, onSnapshot, preview = false, deep = false, excludeIds = new Set() } = {},
+    extraSearches = true, onSnapshot, preview = false, deep = false, excludeIds = new Set(), seedBasket = [], personal } = {},
 ) {
   const items = [],
     warnings = [],
@@ -321,9 +321,16 @@ export async function discover(
     }
     const alternativeNames = { shirts: "button down shirt", jumpers: "knit sweater",
       gilets: "body warmer", jackets: "coat", trousers: "chinos", shoes: "loafers" };
-    const variants = gaps.slice(0, 2).map((entry) => ({ entry: { ...entry,
-      query: [entry.brand, alternativeNames[entry.want.kind], entry.collar].filter(Boolean).join(" ") },
-      order: "relevance" }));
+    const variants = gaps.slice(0, 2).map((entry) => {
+      const kind = entry.want.kind;
+      const style = profile.styleByKind?.[kind]?.search;
+      const range = profile.fitByKind[kind].pitToPitCm;
+      const terms = kind === "jackets" && range && style
+        ? [style, "pit to pit", String(Math.round((range[0] + range[1]) / 2))]
+        : entry.targeted ? [entry.targeted.slice(entry.brand.length).trim(), alternativeNames[kind]]
+          : [alternativeNames[kind], entry.collar];
+      return { entry: { ...entry, query: [entry.brand, ...terms].filter(Boolean).join(" ") }, order: "relevance" };
+    });
     const sorting = [SORT_VALUE.price_low_to_high, SORT_VALUE.newest_first]
       .map((order, index) => ({ entry: gaps[index % gaps.length], order }));
     const additional = (deep ? [...focused.slice(0, 2), ...variants, ...sorting] : [...focused, ...sorting])
@@ -335,7 +342,7 @@ export async function discover(
   }
   // Validate and enrich a bounded shortlist, prioritising size-compatible results.
   const relaxed = { ...profile, strictFit: false };
-  const ranked = rankItems(items.filter(item => !excludeIds.has(item.id)), relaxed, { preview: true });
+  const ranked = rankItems(items.filter(item => !excludeIds.has(item.id)), relaxed, { preview: true, personal });
   const countsBySeller = new Map();
   for (const item of ranked) {
     if (!item.sellerId || item.fit.status !== "match") continue;
@@ -358,7 +365,9 @@ export async function discover(
     return { want, candidates: [...new Set(ordered)], next: 0, checked: 0, qualified: 0 };
   });
   const refreshed = new Map();
-  const wardrobeEligible = expandWardrobes && profile.wants.reduce((sum, want) => sum + want.qty, 0) > 1;
+  const retainedSellers = [...new Set(seedBasket.map(({ sellerId }) => sellerId).filter(Boolean))];
+  const wardrobeEligible = expandWardrobes && (retainedSellers.length ||
+    profile.wants.reduce((sum, want) => sum + want.qty, 0) > 1);
   const catalogueLimit = wardrobeEligible ? DETAIL_CHECK_LIMIT - 4 : DETAIL_CHECK_LIMIT;
   async function recheck(item, requiredSeller) {
     try {
@@ -391,7 +400,7 @@ export async function discover(
       group.checked++;
       const listing = await recheck(item);
       refreshed.set(item.id, listing);
-      if (listing && eligible(listing, profile)) group.qualified++;
+      if (listing && eligible(listing, profile) && (!personal || personal.allow(listing))) group.qualified++;
     }
   }
   await checkCatalogue(catalogueLimit, wardrobeEligible ? 3 : 0);
@@ -412,7 +421,7 @@ export async function discover(
     const first = basketSellers[0] ?? sellers[0];
     const other = sellers.filter((seller) => seller !== first)
       .sort((a, b) => wardrobePotential(b) - wardrobePotential(a))[0];
-    for (const seller of [first, other].filter(Boolean)) {
+    for (const seller of [...new Set([...retainedSellers, first, other].filter(Boolean))].slice(0, 2)) {
       if (!canCheckDetails(1) || wardrobeDetailAttempts >= 4) break;
       let inventory;
       try {

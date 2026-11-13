@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { replaceSkipped } from "../scripts/replacement.mjs";
 import { makeResult, validateProfile } from "../src/engine.js";
 import { startShopping, prepareFollowUp } from "../src/hosted-shopping.js";
+import { hostedProfile } from "../src/hosted-contract.js";
+import { readResumeCode } from "../src/hosted-resume.js";
+import { personalRanking } from "../src/taste.js";
 import { discoverReplacements } from "../src/provider.js";
 import { feedbackFor, listingMemory } from "../src/taste.js";
 
@@ -17,6 +20,40 @@ const feedback = [
   feedbackFor(listingMemory(keep), "save"),
   feedbackFor(listingMemory(skipped), "skip", "fit", "slim fit"),
 ];
+
+test("hosted fit feedback survives resume and deeper search preserves the basket", async (t) => {
+  const old = process.env.SCOUT_RESUME_SECRET;
+  process.env.SCOUT_RESUME_SECRET = "test-only";
+  t.after(() => { if (old === undefined) delete process.env.SCOUT_RESUME_SECRET; else process.env.SCOUT_RESUME_SECRET = old; });
+  const brief = hostedProfile({ ...profile, styleByKind: { shirts: { exclude: ["slim fit"] } } });
+  assert.deepEqual(brief.styleByKind.shirts.avoid, ["slim fit"]);
+  const original = { ...keep, description: "Classic fit.", available: true, url: "https://www.vinted.co.uk/items/123" };
+  const initial = startShopping(brief, makeResult([original], validateProfile(brief)));
+  const recorded = await prepareFollowUp({ session: initial.session,
+    fit: { number: 1, outcome: "fits", area: "chest" } }).run();
+  assert.equal(recorded.taste.outcomes[0].fitArea, "chest");
+  const feedback = readResumeCode(recorded.resume).feedback;
+  assert.ok(personalRanking(feedback).score({ ...original, id: "other" }).adjustment < 0);
+  const changedCode = (recorded.resume.startsWith("A") ? "B" : "A") + recorded.resume.slice(1);
+  assert.throws(() => readResumeCode(changedCode), /invalid or expired/);
+  const resumed = await prepareFollowUp({ resume: recorded.resume }).run({
+    read: async () => ({ ...original, price: 12, photoUrls: ["https://images1.vinted.net/example"] }),
+  });
+  assert.equal(resumed.checks[0].number, 1);
+  assert.equal(resumed.checks[0].priceChanged, true);
+  assert.equal(resumed.checks[0].photos.status, "unreviewed");
+  assert.equal(resumed.recheckedCost.total, 17.5);
+  const explored = await prepareFollowUp({ session: resumed.session, explore: true }).run({
+    discover: async (focus, options) => {
+      assert.deepEqual(focus.wants, [{ kind: "shirts", qty: 1 }]);
+      assert.ok(options.deep && options.excludeIds.has(original.id));
+      assert.equal(options.seedBasket[0].sellerId, original.sellerId);
+      return { items: [shirt("extra", "Hackett shirt", 5)], meta: { mode: "live" } };
+    },
+  });
+  assert.equal(explored.alternatives[0].id, "extra");
+  assert.equal(explored.picks[0].id, original.id);
+});
 
 test("hosted swap retains pick numbers and only accepts a cheaper bundle", async () => {
   const brief = { ...profile, wants: { shirts: 3 } };

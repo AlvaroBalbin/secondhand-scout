@@ -4,6 +4,9 @@ import { demoItems } from "./demo.js";
 import { normalizeListings } from "./listings.js";
 import { readFeed, searchFeed } from "./feed.js";
 import { prepareFollowUp, startShopping } from "./hosted-shopping.js";
+import { hostedProfile, requestCorrection } from "./hosted-contract.js";
+import { readResumeCode } from "./hosted-resume.js";
+import { personalRanking } from "./taste.js";
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -53,8 +56,11 @@ export async function api(request, rankingOptions = {}, hosted = false) {
         lastSearch = Date.now();
       }
     }
-    const respond = (result) => json(hosted && path === "/api/search" ? startShopping(body.profile, result) : result);
-    const profile = validateProfile(body?.profile);
+    const rawProfile = hosted ? hostedProfile(body?.profile) : body?.profile;
+    const profile = validateProfile(rawProfile);
+    const feedback = hosted && body.resume ? readResumeCode(body.resume).feedback ?? [] : [];
+    if (feedback.length) rankingOptions = { ...rankingOptions, personal: personalRanking(feedback, null, [], rawProfile) };
+    const respond = (result) => json(hosted && path === "/api/search" ? startShopping(rawProfile, result, feedback) : result);
     const personalized = rankingOptions.personal || rankingOptions.nearMatches;
     if (path === "/api/search" && profile.fitByKind.jackets?.pitToPitCm) {
       rankingOptions = { ...rankingOptions, nearMatches: true };
@@ -110,7 +116,8 @@ export async function api(request, rankingOptions = {}, hosted = false) {
       const found =
         path === "/api/import"
           ? await importListings(profile, body.links)
-          : await discover(profile, { preview: rankingOptions.nearMatches, deep, excludeIds: rankingOptions.excludeIds });
+          : await discover(profile, { preview: rankingOptions.nearMatches, deep, excludeIds: rankingOptions.excludeIds,
+            personal: rankingOptions.personal });
       const result = makeResult(found.items, profile, found.meta, found.comparables, rankingOptions);
       if (!personalized) {
         if (cache.size >= 20) cache.delete(cache.keys().next().value);
@@ -128,6 +135,7 @@ export async function api(request, rankingOptions = {}, hosted = false) {
           e instanceof InputError || e instanceof ProviderError
             ? e.message
             : "The search could not finish. Try again later.",
+        ...(hosted ? requestCorrection(e) : {}),
         type:
           e instanceof ProviderError
             ? "provider_unavailable"
