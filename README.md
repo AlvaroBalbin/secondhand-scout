@@ -178,7 +178,9 @@ Run `node scripts/dev.mjs --hosted` or build the included Dockerfile. Set `SCOUT
 
 Once you have a hosted URL, paste this into an agent chat with HTTP or terminal access. The `/start` route gives the agent the search instructions and request format.
 
-Hosted search returns numbered basket picks and a session ID. Send the latest session ID to `POST /v1/follow-up` with `keep` pick numbers or a `swap` containing a pick `number` and optional `bundleOnly`. The response includes the current basket and estimated delivered total. A conditional swap keeps the original pick if Scout finds no eligible cheaper replacement. Sessions expire after an hour and reset when the service restarts.
+Read `GET /v1/schema` for the search format and examples. Hosted search returns numbered basket picks and a session ID. Send the latest session ID to `POST /v1/follow-up` to keep or swap picks, recheck finalists, look for more options, or record fit feedback. A conditional swap keeps the original pick if Scout finds no eligible cheaper replacement.
+
+Sessions expire after an hour and reset when the service restarts. Set a stable, private `SCOUT_RESUME_SECRET` to enable optional encrypted resume codes. The shopper can use a code in a new chat within 30 days. Scout rechecks up to five restored picks when resuming, and a new search can use the code to apply saved fit feedback. Keep the code private because anyone holding it can reopen the saved basket.
 
 ```text
 Be my Vinted UK deal scout using MY_SCOUT_URL/start
