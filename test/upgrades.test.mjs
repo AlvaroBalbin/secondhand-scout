@@ -102,6 +102,13 @@ test("hosted HTTP search reads fresh feed, enforces token and fails closed on st
   assert.equal(result.meta.mode, "feed");
   assert.equal(result.meta.depth, "deep");
   assert.equal(result.basket.items[0].id, "example-listing");
+  const keep = token => fetch(endpoint + "/v1/follow-up", { method: "POST", headers: {
+    "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}),
+  }, body: JSON.stringify({ session: result.session, keep: [1] }) });
+  assert.equal((await keep()).status, 401);
+  const kept = await (await keep("test-token")).json();
+  assert.equal(kept.picks[0].saved, true);
+  assert.equal(kept.basket.cost.total, result.basket.cost.total);
   await writeFile(file, JSON.stringify({ ...fresh, capturedAt: "2020-01-01T00:00:00Z" }));
   assert.equal((await search("test-token")).status, 503);
 });

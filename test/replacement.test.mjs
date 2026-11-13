@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { replaceSkipped } from "../scripts/replacement.mjs";
-import { validateProfile } from "../src/engine.js";
+import { makeResult, validateProfile } from "../src/engine.js";
+import { startShopping, prepareFollowUp } from "../src/hosted-shopping.js";
 import { discoverReplacements } from "../src/provider.js";
 import { feedbackFor, listingMemory } from "../src/taste.js";
 
@@ -16,6 +17,36 @@ const feedback = [
   feedbackFor(listingMemory(keep), "save"),
   feedbackFor(listingMemory(skipped), "skip", "fit", "slim fit"),
 ];
+
+test("hosted swap retains pick numbers and only accepts a cheaper bundle", async () => {
+  const brief = { ...profile, wants: { shirts: 3 } };
+  const initial = startShopping(brief, makeResult([
+    shirt("one", "Hackett shirt", 5, "11"),
+    shirt("two", "Hackett shirt", 10, "12"),
+    shirt("three", "Hackett shirt", 15, "13"),
+  ], validateProfile(brief)));
+  assert.deepEqual(initial.picks.map(({ number, id }) => [number, id]), [[1, "one"], [2, "two"], [3, "three"]]);
+  const action = prepareFollowUp({ session: initial.session, keep: [2], swap: { number: 3, bundleOnly: true } });
+  const miss = await action.run({ discover: async (_brief, request) => {
+    assert.equal(request.bundleOnly, true);
+    assert.deepEqual(request.sellerIds, ["11", "12"]);
+    return { items: [shirt("separate", "Hackett shirt", 1, "99"),
+      shirt("higher", "Hackett shirt", 16, "12")], meta: {} };
+  } });
+  assert.equal(miss.outcome, "no_replacement");
+  assert.equal(miss.basket.cost.total, initial.basket.cost.total);
+  assert.equal(miss.leaveOpenTotal, 26);
+  assert.throws(() => prepareFollowUp({ session: miss.session, swap: { number: 2 } }), /not kept/);
+  const hit = await action.run({ discover: async () => ({ items: [
+    { ...shirt("bundled", "Hackett shirt", 7, "12"), description: "Sleeves shortened." },
+  ], meta: {} }) });
+  assert.equal(hit.outcome, "replaced");
+  assert.equal(hit.basket.cost.total, 34);
+  assert.equal(hit.basket.cost.parcels, 2);
+  assert.deepEqual(hit.picks.map(({ number, id, saved }) => [number, id, saved]),
+    [[1, "one", false], [2, "two", true], [3, "bundled", false]]);
+  assert.equal(hit.picks[2].disclosures[0].type, "alteration");
+});
 
 test("cheapest confirmed replacement uses the whole-basket delivered cost and retains saved picks", async () => {
   const result = await replaceSkipped({ profile, basket: [keep, current] }, feedback, skipped.id, {

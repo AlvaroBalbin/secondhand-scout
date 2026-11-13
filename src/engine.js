@@ -409,7 +409,7 @@ function listingDisclosures(item) {
   }).slice(0, 5);
 }
 
-function listingPriceNotes(item, profile) {
+export function listingPriceNotes(item, profile) {
   return { estimatedDelivered: calculateCosts([item], profile).total, disclosures: listingDisclosures(item) };
 }
 

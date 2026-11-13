@@ -3,6 +3,7 @@ import { discover, importListings, ProviderError } from "./provider.js";
 import { demoItems } from "./demo.js";
 import { normalizeListings } from "./listings.js";
 import { readFeed, searchFeed } from "./feed.js";
+import { prepareFollowUp, startShopping } from "./hosted-shopping.js";
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -16,11 +17,12 @@ const json = (data, status = 200) =>
 const cache = new Map();
 let busy = false,
   lastSearch = 0;
-export async function api(request, rankingOptions = {}) {
+export async function api(request, rankingOptions = {}, hosted = false) {
   const path = new URL(request.url).pathname;
   if (path === "/api/health")
     return json({ ok: true, version: "0.1.0", marketplace: "uk" });
-  if (!["/api/search", "/api/demo", "/api/import", "/api/rank"].includes(path))
+  if (!["/api/search", "/api/demo", "/api/import", "/api/rank"].includes(path) &&
+      !(hosted && path === "/api/follow-up"))
     return json({ error: "Not found" }, 404);
   if (request.method !== "POST") return json({ error: "Use POST" }, 405);
   const origin = request.headers.get("origin");
@@ -36,6 +38,22 @@ export async function api(request, rankingOptions = {}) {
     } catch {
       throw new InputError("The shopping brief could not be read.");
     }
+    if (path === "/api/follow-up") {
+      const followUp = prepareFollowUp(body);
+      if (!followUp.search) return json(await followUp.run());
+      if (process.env.SCOUT_FEED_FILE)
+        return json({ error: "Live replacement search is unavailable in feed mode." }, 503);
+      if (busy || Date.now() - lastSearch < 15000)
+        return json({ error: "A live search just ran. Retry in 15 seconds." }, 429);
+      busy = true;
+      try {
+        return json(await followUp.run());
+      } finally {
+        busy = false;
+        lastSearch = Date.now();
+      }
+    }
+    const respond = (result) => json(hosted && path === "/api/search" ? startShopping(body.profile, result) : result);
     const profile = validateProfile(body?.profile);
     const personalized = rankingOptions.personal || rankingOptions.nearMatches;
     if (path === "/api/search" && profile.fitByKind.jackets?.pitToPitCm) {
@@ -66,7 +84,7 @@ export async function api(request, rankingOptions = {}) {
         const state = await readFeed(process.env.SCOUT_FEED_FILE);
         const found = searchFeed(state, { profile, deep, preview: rankingOptions.nearMatches,
           maxAgeMinutes: Number(process.env.SCOUT_FEED_MAX_AGE_MINUTES || 60) });
-        return json(makeResult(found.items, profile, found.meta, found.comparables, rankingOptions));
+        return respond(makeResult(found.items, profile, found.meta, found.comparables, rankingOptions));
       } catch {
         return json({ error: "The configured listing feed is unavailable or stale. Refresh it before searching.", type: "provider_unavailable" }, 503);
       }
@@ -74,7 +92,7 @@ export async function api(request, rankingOptions = {}) {
     const key = JSON.stringify({ path, profile, links: body.links, deep });
     const hit = personalized ? null : cache.get(key);
     if (hit && Date.now() - hit.time < 300000)
-      return json({
+      return respond({
         ...hit.result,
         meta: { ...hit.result.meta, cached: true },
       });
@@ -98,7 +116,7 @@ export async function api(request, rankingOptions = {}) {
         if (cache.size >= 20) cache.delete(cache.keys().next().value);
         cache.set(key, { time: Date.now(), result });
       }
-      return json(result);
+      return respond(result);
     } finally {
       busy = false;
       lastSearch = Date.now();
