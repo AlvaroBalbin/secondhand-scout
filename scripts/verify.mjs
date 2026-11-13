@@ -1,4 +1,4 @@
-import { assessFit, calculateCosts, disclosedDefects, hasLogoEvidence, listingStyleEvidence, validateProfile } from "../src/engine.js";
+import { assessFit, calculateCosts, disclosedDefects, eligible, hasLogoEvidence, listingPriceNotes, listingStyleEvidence, validateProfile } from "../src/engine.js";
 import { PublicVintedTransport, readListing } from "../src/provider.js";
 
 export async function verifyBasket(last, ids, { client = new PublicVintedTransport(), read = readListing } = {}) {
@@ -37,10 +37,11 @@ export async function verifyBasket(last, ids, { client = new PublicVintedTranspo
       if (!questions.length && profile.logos && !logo)
         questions.push("Could you share a close-up of the logo on the outside of the garment?");
       checks.push({ id, status: "available", askingPrice: item.price, fee: item.fee,
+        ...listingPriceNotes(item, profile),
         priceChanged: item.price !== prior.price, fit, cut, defect, logo, observedAt: item.observedAt,
         photos: { urls: item.photoUrls ?? (item.photoUrl ? [item.photoUrl] : []), status: "unreviewed" },
         questions: questions.slice(0, 1) });
-      if (fit.status === "match" && (!profile.clean || !defect) && item.sellerId)
+      if (item.sellerId && item.sellerId === prior.sellerId && eligible(item, profile))
         refreshed.set(id, item);
     } catch {
       checks.push({ id, status: "unverified" });

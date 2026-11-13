@@ -5,7 +5,9 @@ import { personalRanking } from "../src/taste.js";
 const regularCuts = ["classic fit", "regular fit", "relaxed fit", "traditional fit", "standard fit", "not slim fit"];
 const narrowCuts = ["slim fit", "skinny fit", "super slim", "tailored fit"];
 
-export async function replaceSkipped(last, feedback, id, { discover = discoverReplacements } = {}) {
+export async function replaceSkipped(last, feedback, id, {
+  discover = discoverReplacements, requireCheaperItem = false,
+} = {}) {
   const skipped = feedback.find((entry) => entry.id === String(id) && entry.action === "skip");
   if (!skipped || !last?.basket?.length) throw new Error("Run a shopping search and skip the listing first.");
   const { kind } = skipped;
@@ -37,7 +39,8 @@ export async function replaceSkipped(last, feedback, id, { discover = discoverRe
   const nonSlim = kind === "shirts" && skipped.reason === "fit" && skipped.signals.some(({ value }) => value === "slim fit");
   if (nonSlim)
     searchProfile.styleByKind[kind] = { ...searchProfile.styleByKind[kind], search: "classic fit" };
-  const matches = (item) => personal.allow(item) && (!nonSlim ||
+  const matches = (item) => (!requireCheaperItem || !displaced || item.price < displaced.price) &&
+    personal.allow(item) && (!nonSlim ||
     listingStyleEvidence(item, regularCuts).length > 0 && listingStyleEvidence(item, narrowCuts).length === 0);
   const maxTotal = displaced && (!bundleOnly || skipped.reason === "price")
     ? Math.min(profile.budget, priorCost.total - 0.01) : profile.budget;

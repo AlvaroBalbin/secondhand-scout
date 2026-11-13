@@ -78,7 +78,8 @@ function report(result, interactive = false) {
       const pick = result.picks?.find((entry) => entry.id === id);
       const index = interactive && pick ? `${pick.number}. ` : "";
       console.log(
-        `  ${index}${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})`,
+        `  ${index}${money(item.price)}  ${item.brand} ${item.title} (${item.size || "size unspecified"})` +
+        (item.disclosures?.length ? ` · ${item.disclosures.map(({ type, text }) => `${type}: ${text}`).join(" · ")}` : ""),
       );
       console.log(`    ${item.fit.note}`);
       if (item.styleEvidence?.length)
@@ -102,9 +103,11 @@ function report(result, interactive = false) {
   }
   for (const warning of meta.warnings ?? []) console.log(`\n${warning}`);
   if (result.nearMatches?.length) {
-    console.log("\nWorth asking the seller");
+    console.log("\nNear matches");
     for (const near of result.nearMatches) {
       console.log(`  ${near.title} · ${money(near.estimatedDelivered)} estimated delivered on its own`);
+      if (near.fit?.status === "near") console.log(`    ${near.fit.note}`);
+      for (const { type, text } of near.disclosures ?? []) console.log(`    ${type}: ${text}`);
       for (const question of near.questions) console.log(`    ${question}`);
       if (near.url) console.log(`    ${near.url}`);
     }

@@ -174,12 +174,14 @@ Run `node scripts/feed.mjs watch work/feed-state.json` to poll the authorised HT
 
 ## Hosted search API
 
-Run `node scripts/dev.mjs --hosted` or build the included Dockerfile. Set `SCOUT_FEED_FILE` to a synced state file and expose the service over HTTPS. `PORT` defaults to 4317. Set `SCOUT_SEARCH_TOKEN` for bearer authentication when sharing privately. `GET /v1/health` checks the process and `POST /v1/search` accepts the same brief as the local search API, with optional `"depth":"deep"`. Hosted search is read-only, returns the feed observation time, and fails when the feed is stale or missing.
+Run `node scripts/dev.mjs --hosted` or build the included Dockerfile. Set `SCOUT_FEED_FILE` for a synced feed or `SCOUT_HOSTED_LIVE=1` to use Scout's existing UK catalogue search. If you configure a feed, Scout uses it and reports a stale or unavailable feed as an error. Expose the service over HTTPS. `PORT` defaults to 4317. Set `SCOUT_SEARCH_TOKEN` for bearer authentication when sharing privately. `GET /v1/health` checks the process and `POST /v1/search` accepts the same brief as the local search API, with optional `"depth":"deep"`. The service is read-only.
 
-Once you have a hosted URL, paste this into a terminal-capable agent chat.
+Once you have a hosted URL, paste this into an agent chat with HTTP or terminal access. The `/start` route gives the agent the search instructions and request format.
+
+Hosted search returns numbered basket picks and a session ID. Send the latest session ID to `POST /v1/follow-up` with `keep` pick numbers or a `swap` containing a pick `number` and optional `bundleOnly`. The response includes the current basket and estimated delivered total. A conditional swap keeps the original pick if Scout finds no eligible cheaper replacement. Sessions expire after an hour and reset when the service restarts.
 
 ```text
-Be my Secondhand Scout. Ask what I want, my sizes and my delivered budget, then POST {"profile":{...}} to MY_SCOUT_URL/v1/search. Show the listing links, fit notes and delivered basket estimate. Use depth "deep" if I ask you to look further.
+Be my Vinted UK deal scout using MY_SCOUT_URL/start
 ```
 
 Live search is experimental. It uses the catalogue parser from [googlarz/vinted-mcp-cli](https://github.com/googlarz/vinted-mcp-cli) and stops if Vinted denies access. Use the live modes only where permitted by the [Vinted UK terms](https://www.vinted.co.uk/terms-and-conditions). The local rank command works with your own listing data without marketplace access.

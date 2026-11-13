@@ -91,6 +91,10 @@ test("hosted HTTP search reads fresh feed, enforces token and fails closed on st
     "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}),
   }, body: JSON.stringify({ profile: { wants: { jumpers: 1 }, sizes: "L", budget: 50 }, depth: "deep" }) });
   assert.equal((await search()).status, 401);
+  const guide = await fetch(endpoint + "/start");
+  assert.equal(guide.status, 200);
+  assert.match(guide.headers.get("content-type"), /^text\/plain/);
+  assert.match(await guide.text(), /POST \/v1\/search/);
   assert.equal((await fetch(endpoint + "/api/demo")).status, 404);
   const response = await search("test-token");
   assert.equal(response.status, 200);
@@ -98,6 +102,13 @@ test("hosted HTTP search reads fresh feed, enforces token and fails closed on st
   assert.equal(result.meta.mode, "feed");
   assert.equal(result.meta.depth, "deep");
   assert.equal(result.basket.items[0].id, "example-listing");
+  const keep = token => fetch(endpoint + "/v1/follow-up", { method: "POST", headers: {
+    "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}),
+  }, body: JSON.stringify({ session: result.session, keep: [1] }) });
+  assert.equal((await keep()).status, 401);
+  const kept = await (await keep("test-token")).json();
+  assert.equal(kept.picks[0].saved, true);
+  assert.equal(kept.basket.cost.total, result.basket.cost.total);
   await writeFile(file, JSON.stringify({ ...fresh, capturedAt: "2020-01-01T00:00:00Z" }));
   assert.equal((await search("test-token")).status, 503);
 });
