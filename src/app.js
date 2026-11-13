@@ -7,19 +7,21 @@ import { prepareFollowUp, startShopping } from "./hosted-shopping.js";
 import { hostedProfile, requestCorrection } from "./hosted-contract.js";
 import { readResumeCode } from "./hosted-resume.js";
 import { personalRanking } from "./taste.js";
+import { createLiveQueue, LiveQueueFull } from "./live-queue.js";
 
-const json = (data, status = 200) =>
+const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      ...headers,
     },
   });
 const cache = new Map();
-let busy = false,
-  lastSearch = 0;
+const queue = createLiveQueue();
+const inFlight = new Map();
 export async function api(request, rankingOptions = {}, hosted = false) {
   const path = new URL(request.url).pathname;
   if (path === "/api/health")
@@ -46,15 +48,7 @@ export async function api(request, rankingOptions = {}, hosted = false) {
       if (!followUp.search) return json(await followUp.run());
       if (process.env.SCOUT_FEED_FILE)
         return json({ error: "Live replacement search is unavailable in feed mode." }, 503);
-      if (busy || Date.now() - lastSearch < 15000)
-        return json({ error: "A live search just ran. Retry in 15 seconds." }, 429);
-      busy = true;
-      try {
-        return json(await followUp.run());
-      } finally {
-        busy = false;
-        lastSearch = Date.now();
-      }
+      return json(await queue(followUp.run));
     }
     const rawProfile = hosted ? hostedProfile(body?.profile) : body?.profile;
     const profile = validateProfile(rawProfile);
@@ -102,17 +96,9 @@ export async function api(request, rankingOptions = {}, hosted = false) {
         ...hit.result,
         meta: { ...hit.result.meta, cached: true },
       });
-    if (busy || Date.now() - lastSearch < 15000)
-      return json(
-        {
-          error:
-            "A live search is already running or has just finished. Please wait a moment.",
-        },
-        429,
-      );
-    busy = true;
-    lastSearch = Date.now();
-    try {
+    const shared = personalized ? null : inFlight.get(key);
+    if (shared) return respond(await shared);
+    const job = queue(async () => {
       const found =
         path === "/api/import"
           ? await importListings(profile, body.links)
@@ -123,12 +109,18 @@ export async function api(request, rankingOptions = {}, hosted = false) {
         if (cache.size >= 20) cache.delete(cache.keys().next().value);
         cache.set(key, { time: Date.now(), result });
       }
-      return respond(result);
+      return result;
+    });
+    if (!personalized) inFlight.set(key, job);
+    try {
+      return respond(await job);
     } finally {
-      busy = false;
-      lastSearch = Date.now();
+      if (!personalized) inFlight.delete(key);
     }
   } catch (e) {
+    if (e instanceof LiveQueueFull)
+      return json({ error: "Scout is handling other live requests. Retry in 10 seconds.",
+        type: "queue_full" }, 503, { "Retry-After": "10" });
     return json(
       {
         error:
