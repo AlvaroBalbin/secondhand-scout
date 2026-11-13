@@ -175,6 +175,19 @@ function validImage(value) {
     return null;
   }
 }
+export function listingGallery(html, primary) {
+  const photos = new Map();
+  for (const [tag] of html.matchAll(/<img\b[^>]*\bdata-testid="item-photo-\d+--img"[^>]*>/gi)) {
+    const index = Number(tag.match(/\bdata-testid="item-photo-(\d+)--img"/i)[1]);
+    const url = validImage(tag.match(/\bsrc="([^"]+)"/i)?.[1].replaceAll("&amp;", "&"));
+    if (url && !photos.has(index)) photos.set(index, url);
+  }
+  const urls = [...new Set([...photos].sort(([a], [b]) => a - b).map(([, url]) => url))];
+  if (urls.length) return { urls, source: "listing_gallery" };
+  return { urls: [...new Set((Array.isArray(primary) ? primary : [primary]).map(validImage).filter(Boolean))],
+    source: "listing_metadata" };
+}
+
 function publicDetail(html) {
   const m = html.match(
     /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/,
@@ -212,6 +225,7 @@ export async function readListing(client, reference, kind) {
   const { id, url } = parseListingUrl(reference);
   const { body } = await client.fetchHtml(url);
   const { ld, price, fee, size } = publicDetail(body);
+  const gallery = listingGallery(body, ld.image);
   const sellerId = body.match(/href="\/member\/(\d+)/)?.[1];
   return {
     id: String(id),
@@ -223,8 +237,9 @@ export async function readListing(client, reference, kind) {
     size: size || "",
     description: String(ld.description || "").slice(0, 3000),
     url,
-    photoUrl: validImage(Array.isArray(ld.image) ? ld.image[0] : ld.image),
-    photoUrls: [...new Set((Array.isArray(ld.image) ? ld.image : [ld.image]).map(validImage).filter(Boolean))].slice(0, 12),
+    photoUrl: gallery.urls[0] ?? null,
+    photoUrls: gallery.urls,
+    photoSource: gallery.source,
     sellerId: sellerId || null,
     sellerName: "",
     condition: ld.offers?.itemCondition?.split("/").pop() || "Not specified",

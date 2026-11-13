@@ -39,7 +39,7 @@ export async function verifyBasket(last, ids, { client = new PublicVintedTranspo
       checks.push({ id, status: "available", askingPrice: item.price, fee: item.fee,
         ...listingPriceNotes(item, profile),
         priceChanged: item.price !== prior.price, fit, cut, defect, logo, observedAt: item.observedAt,
-        photos: { urls: item.photoUrls ?? (item.photoUrl ? [item.photoUrl] : []), status: "unreviewed" },
+        photos: { urls: item.photoUrls ?? (item.photoUrl ? [item.photoUrl] : []), source: item.photoSource ?? "listing_metadata", status: "unreviewed" },
         questions: questions.slice(0, 1) });
       if (item.sellerId && item.sellerId === prior.sellerId && eligible(item, profile))
         refreshed.set(id, item);

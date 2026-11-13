@@ -9,6 +9,32 @@ import { shop } from "../scripts/shop.mjs";
 import { validateProfile } from "../src/engine.js";
 import { discover } from "../src/provider.js";
 import { applyFeed } from "../src/feed.js";
+import { listingGallery } from "../src/provider.js";
+import { createLiveQueue, LiveQueueFull } from "../src/live-queue.js";
+
+test("gallery returns ordered listing photos rather than other page images", () => {
+  const first = "https://images1.vinted.net/front.webp";
+  const second = "https://images1.vinted.net/label.webp?a=1&b=2";
+  const html = `<img src="https://images1.vinted.net/avatar.webp" data-testid="avatar">
+    <img data-testid="item-photo-2--img" src="${second.replace("&", "&amp;")}">
+    <img src="${first}" data-testid="item-photo-1--img">
+    <img src="${first}" data-testid="item-photo-1--img">
+    <img src="https://example.com/third.webp" data-testid="item-photo-3--img">`;
+  assert.deepEqual(listingGallery(html, first), { urls: [first, second], source: "listing_gallery" });
+  assert.deepEqual(listingGallery("", first), { urls: [first], source: "listing_metadata" });
+});
+
+test("live queue serializes follow-ups and rejects excess requests without running them", async () => {
+  const queue = createLiveQueue({ maxWaiting: 1, spacingMs: 0 });
+  let finish;
+  const first = queue(() => new Promise(resolve => { finish = resolve; }));
+  let ran = false;
+  const second = queue(() => { ran = true; return "second"; });
+  await assert.rejects(queue(() => assert.fail("excess request ran")), LiveQueueFull);
+  assert.equal(ran, false);
+  finish("first");
+  assert.deepEqual(await Promise.all([first, second]), ["first", "second"]);
+});
 
 const profile = { wants: { shirts: 1 }, collar: 41, budget: 50, brands: "Hackett" };
 const shirt = { id: "shirt", kind: "shirts", title: "Hackett regular fit shirt", price: 12, fee: 1.3,
