@@ -1,14 +1,18 @@
 # Secondhand Scout
 
-## Paste this into an agent chat
+**Two Ralph Lauren shirts for £20.64 estimated delivered.** In a live Codex session, Scout found both in Vinted UK’s 41 cm collar category, then kept the basket when it couldn’t find a cheaper swap.
+
+![Scout demo showing the £20.64 shirt basket and the cheaper-swap check](docs/launch/scout-demo.gif)
+
+## Try it in Codex
 
 ```text
-Be my Vinted UK deal scout using https://secondhand-scout-production.up.railway.app/start
+Scout Vinted for me: https://is.gd/SecondhandScout
 ```
 
-Use a chat with HTTP or terminal access, such as Codex or Claude Code. Tell Scout what you're looking for, your sizes and your total budget including delivery. Your chat may ask to connect to Scout.
+Paste the line into a Codex chat with HTTP or terminal access. Tell Scout what you want, your sizes, and your total budget including delivery. No checkout or MCP setup is needed. Codex may ask for network approval. The short link leads to the [hosted Scout guide](https://secondhand-scout-production.up.railway.app/start).
 
-Rank secondhand clothing by your sizes, preferred brands and total budget. Scout explains each pick and groups items from the same seller so you can consider a bundle.
+Scout is an open-source Vinted UK deal finder. It compares estimated delivered prices and looks for same-seller bundles. If Scout helps you find something, star the repo to save it.
 
 ## Run Scout from a local checkout
 
